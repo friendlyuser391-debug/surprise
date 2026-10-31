@@ -28,11 +28,13 @@ export const love = {
 
   /**
    * First door — the playful TIME CODE puzzle.
-   * Built from the same live countdown shown on screen:
-   *   days > 0                        → DD + HH + MM   (e.g. 051230)
-   *   days = 0, hours > 0             → HH + MM        (e.g. 0425 → 04h 25m)
-   *   days = 0, hours = 0, mins > 0   → MM             (e.g. 09)
-   *   less than a minute to go        → no code — hold on, it unlocks itself
+   * Rule requested by user:
+   *   now day count + 1, hour + 1, minutes + 60
+   * e.g. If countdown is 03d 02h 42m:
+   *   days: 3 + 1 = 04
+   *   hours: 2 + 1 = 03
+   *   minutes: 42 + 60 = 102
+   *   combined code: "0403102"
    * Set `timeCodeEnabled: false` to switch back to a fixed code below.
    */
   timeCodeEnabled: true,
@@ -240,11 +242,20 @@ export function isPasswordAutoVisible(): boolean {
   return Date.now() >= target;
 }
 
-/** The playful time code, derived from the exact countdown components. */
+/**
+ * The playful countdown time code puzzle:
+ * User requested rule:
+ *   now day count + 1, hour + 1, minutes + 60
+ * e.g. 03d 02h 42m -> day(3+1=04) + hour(2+1=03) + min(42+60=102) -> "0403102"
+ */
 export function timeCode(days: number, hours: number, minutes: number): string | null {
   const pad = (n: number) => String(n).padStart(2, "0");
-  if (days > 0) return `${pad(days)}${pad(hours)}${pad(minutes)}`;
-  if (hours > 0) return `${pad(hours)}${pad(minutes)}`;
-  if (minutes > 0) return `${pad(minutes)}`;
+  const dVal = pad(days + 1);
+  const hVal = pad(hours + 1);
+  const mVal = String(minutes + 60);
+
+  if (days > 0) return `${dVal}${hVal}${mVal}`;
+  if (hours > 0) return `${hVal}${mVal}`;
+  if (minutes > 0) return mVal;
   return null; // final minute — no code, hold on
 }

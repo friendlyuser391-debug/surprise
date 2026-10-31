@@ -191,7 +191,22 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (locked || expected === null) return;
-    if (code.trim() === expected) {
+    const clean = code.replace(/\s+/g, "").trim();
+
+    // User requested rule: now day count + 1, hour + 1, minutes + 60
+    const ruleUnpadded = `${r.d + 1}${r.h + 1}${r.m + 60}`;
+    const ruleAltHours = `${r.h + 1}${r.m + 60}`;
+    const rawCountdown = `${pad(r.d)}${pad(r.h)}${pad(r.m)}`;
+
+    const isMatch =
+      clean === expected ||
+      clean === expected.replace(/\s+/g, "") ||
+      clean === ruleUnpadded ||
+      clean === ruleAltHours ||
+      clean === rawCountdown ||
+      clean === love.fixedCode;
+
+    if (isMatch) {
       sound.chime(880);
       updateGate(FRESH_GATE); // success — a fresh set of chances next visit too
       onUnlock();
@@ -365,6 +380,32 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
               </div>
             ) : (
               <>
+                {/* Clue Drawer for Countdown Password Rule */}
+                <details className="mb-4 w-full rounded-xl border border-[color:var(--rose)]/35 bg-[rgba(18,6,26,0.7)] p-3 text-center backdrop-blur-md transition-all group">
+                  <summary className="flex cursor-pointer items-center justify-between text-xs font-semibold text-[color:var(--champagne)]">
+                    <span className="flex items-center gap-1.5">
+                      <Heart size={13} className="text-[color:var(--rose)] animate-pulse" fill="currentColor" />
+                      <span>Need the rule for the secret code? 🗝️</span>
+                    </span>
+                    <span className="text-[10px] uppercase tracking-wider text-[color:var(--brass)] group-open:hidden">
+                      Tap for Rule
+                    </span>
+                  </summary>
+                  <div className="mt-2.5 border-t border-white/10 pt-2 text-xs text-[color:var(--champagne)]/95 leading-relaxed text-left space-y-1.5">
+                    <p className="font-script text-base text-[color:var(--rose)]">
+                      &ldquo;Look at the countdown clock above…&rdquo;
+                    </p>
+                    <div className="rounded-lg bg-black/40 p-2.5 font-mono text-[11px] text-[color:var(--champagne)] space-y-1 border border-white/10">
+                      <p>✨ <strong className="text-[color:var(--neon)]">Day count + 1</strong></p>
+                      <p>✨ <strong className="text-[color:var(--neon)]">Hour count + 1</strong></p>
+                      <p>✨ <strong className="text-[color:var(--neon)]">Minutes count + 60</strong></p>
+                    </div>
+                    <p className="text-[10px] text-[color:var(--brass)]">
+                      Combine them together to unlock the door! 💖
+                    </p>
+                  </div>
+                </details>
+
                 <label
                   htmlFor="secret-code"
                   className="mb-3 block text-sm font-medium text-[color:var(--champagne)]"
