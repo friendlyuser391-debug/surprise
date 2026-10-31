@@ -1,0 +1,14 @@
+.git
+.next
+node_modules
+.zscripts
+tests
+tool-results
+download
+mini-services
+examples
+upload
+db
+*.log
+*.pid
+
