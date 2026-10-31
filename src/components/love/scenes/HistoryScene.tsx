@@ -19,12 +19,15 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
+  Flame,
+  Gauge,
   Gift,
   Heart,
   Navigation,
   Sparkles,
   Utensils,
   Volume2,
+  Zap,
 } from "lucide-react";
 import { love } from "@/lib/love-config";
 import { fx } from "@/lib/fx";
@@ -160,6 +163,10 @@ export default function HistoryScene({ onNext }: { onNext?: () => void }) {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [openedGifts, setOpenedGifts] = useState<Set<number>>(new Set());
   const [isDriving, setIsDriving] = useState(false);
+  const [isNitro, setIsNitro] = useState(false);
+  const [speed, setSpeed] = useState(0);
+  const [gear, setGear] = useState<"P" | "D1" | "D2" | "D3" | "SPORT" | "R">("D1");
+  const [rpm, setRpm] = useState(900);
   const [honking, setHonking] = useState(false);
   const giftRef = useRef<HTMLDivElement>(null);
 
@@ -183,39 +190,82 @@ export default function HistoryScene({ onNext }: { onNext?: () => void }) {
     setOpenedGifts((prev) => new Set(prev).add(currentIdx));
   }, [currentIdx, isGiftOpened, reduced]);
 
-  // Navigate / drive the car to a target milestone
+  // Real fast interactive car driving engine
   const driveTo = useCallback(
-    (targetIdx: number) => {
+    (targetIdx: number, nitro = false) => {
       if (targetIdx === currentIdx || isDriving) return;
       setIsDriving(true);
-      sound.carRev();
-      sound.whoosh();
+      setIsNitro(nitro);
 
-      // Exhaust heart smoke while driving
-      if (!reduced) {
-        fx.trailSpark(window.innerWidth * 0.45, window.innerHeight * 0.42, "#ff2e93");
+      const isForward = targetIdx > currentIdx;
+      setGear(isForward ? (nitro ? "SPORT" : "D3") : "R");
+      setRpm(nitro ? 7200 : 5800);
+
+      if (nitro) {
+        sound.rocketLaunch();
+        sound.carRev();
+        setSpeed(175);
+      } else {
+        sound.carRev();
+        sound.whoosh();
+        setSpeed(128);
       }
 
+      if (!reduced) {
+        fx.trailSpark(window.innerWidth * 0.45, window.innerHeight * 0.42, nitro ? "#38bdf8" : "#ff2e93");
+        if (nitro) {
+          fx.doubleHeartBurst(window.innerWidth * 0.5, window.innerHeight * 0.45);
+        }
+      }
+
+      // Fast, snappy driving time: 420ms (nitro) / 520ms (normal)
+      const driveTime = nitro ? 420 : 520;
       setTimeout(() => {
         setCurrentIdx(targetIdx);
         setIsDriving(false);
+        setIsNitro(false);
+        setSpeed(0);
+        setGear("D1");
+        setRpm(900);
         sound.chime(880);
-      }, 750);
+      }, driveTime);
     },
     [currentIdx, isDriving, reduced]
   );
 
   const driveNext = useCallback(() => {
     if (currentIdx < MILESTONES.length - 1) {
-      driveTo(currentIdx + 1);
+      driveTo(currentIdx + 1, false);
     }
   }, [currentIdx, driveTo]);
 
   const drivePrev = useCallback(() => {
     if (currentIdx > 0) {
-      driveTo(currentIdx - 1);
+      driveTo(currentIdx - 1, false);
     }
   }, [currentIdx, driveTo]);
+
+  // Fast Nitro boost trigger
+  const triggerNitro = useCallback(() => {
+    if (currentIdx < MILESTONES.length - 1 && !isDriving) {
+      driveTo(currentIdx + 1, true);
+    } else if (!isDriving) {
+      // Rev nitro in place at final milestone
+      setIsNitro(true);
+      setSpeed(165);
+      setRpm(7600);
+      sound.rocketLaunch();
+      sound.carRev();
+      if (!reduced) {
+        fx.doubleHeartBurst(window.innerWidth * 0.5, window.innerHeight * 0.4);
+      }
+      setTimeout(() => {
+        setIsNitro(false);
+        setSpeed(0);
+        setRpm(900);
+      }, 480);
+    }
+  }, [currentIdx, isDriving, driveTo, reduced]);
 
   // Honk horn
   const honkHorn = useCallback(() => {
@@ -224,28 +274,43 @@ export default function HistoryScene({ onNext }: { onNext?: () => void }) {
     if (!reduced) {
       fx.sealBurst(window.innerWidth * 0.5, window.innerHeight * 0.35);
     }
-    setTimeout(() => setHonking(false), 900);
+    setTimeout(() => setHonking(false), 800);
   }, [reduced]);
 
-  // Keyboard controls (Left/Right arrow keys for driving)
+  // Keyboard controls for realistic driving:
+  // Right / D / W = Accelerate, Left / A / S = Reverse, N / Shift = Nitro, H = Horn, Space = Gift
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight") driveNext();
-      if (e.key === "ArrowLeft") drivePrev();
-      if (e.key === " " || e.key === "Enter") {
-        if (!isGiftOpened) openGift();
+      const k = e.key.toLowerCase();
+      if (e.key === "ArrowRight" || k === "d" || k === "w") {
+        e.preventDefault();
+        driveNext();
+      } else if (e.key === "ArrowLeft" || k === "a" || k === "s") {
+        e.preventDefault();
+        drivePrev();
+      } else if (k === "n" || e.key === "Shift") {
+        e.preventDefault();
+        triggerNitro();
+      } else if (k === "h") {
+        e.preventDefault();
+        honkHorn();
+      } else if (e.key === " " || e.key === "Enter") {
+        if (!isGiftOpened) {
+          e.preventDefault();
+          openGift();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [driveNext, drivePrev, isGiftOpened, openGift]);
+  }, [driveNext, drivePrev, triggerNitro, honkHorn, isGiftOpened, openGift]);
 
   return (
     <section
       className="relative z-10 mx-auto min-h-dvh w-full max-w-4xl px-3 sm:px-4 py-12 pb-32 lg:pb-24 text-center select-none"
       aria-labelledby="road-title"
     >
-      {/* ── HEADER & HUD ── */}
+      {/* ── HEADER & NAVIGATION ── */}
       <div className="flex flex-col items-center animate-[fadeUp_.8s_ease_both]">
         <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--rose)]/40 bg-[rgba(255,46,147,0.15)] px-3.5 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-[color:var(--champagne)] backdrop-blur-md shadow-[0_0_15px_rgba(255,46,147,0.3)]">
           <Navigation size={13} className="text-[color:var(--rose)] animate-spin" />
@@ -259,34 +324,99 @@ export default function HistoryScene({ onNext }: { onNext?: () => void }) {
           Our Journey With You
         </h1>
         <p className="mt-1.5 max-w-md text-xs sm:text-sm text-[color:var(--text-soft)]">
-          Drive the car along our special dates and unwrap each memory gift box! 🎁
+          Press Gas to drive our sports car fast through each special memory milestone! 🏎️💨
         </p>
 
-        {/* HUD Dash: Progress & Quick Jumps */}
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 sm:gap-3">
-          <div className="rounded-xl border border-[color:var(--brass)]/30 bg-[rgba(18,6,26,0.7)] px-3 py-1.5 backdrop-blur-md text-xs text-[color:var(--champagne)]">
-            <span className="text-[color:var(--brass)] uppercase text-[10px] tracking-wider block">Stop</span>
-            <strong className="font-mono text-sm">{currentIdx + 1}</strong> of {MILESTONES.length}
+        {/* ── REALISTIC SPORTS CAR COCKPIT & DASHBOARD HUD ── */}
+        <div className="mt-4 flex w-full max-w-2xl flex-wrap items-center justify-between gap-3 rounded-2xl border border-[color:var(--brass)]/35 bg-[radial-gradient(ellipse_at_top,rgba(26,10,36,0.95)_0%,rgba(10,3,16,0.98)_100%)] p-3 sm:p-4 backdrop-blur-md shadow-[0_0_25px_rgba(0,0,0,0.8)]">
+          {/* Digital Speedometer Gauge */}
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full border-2 border-[color:var(--rose)]/40 bg-[rgba(255,46,147,0.1)] shadow-[0_0_15px_rgba(255,46,147,0.35)]">
+              <div className="text-center">
+                <span className="font-mono text-base sm:text-lg font-extrabold text-[color:var(--champagne)] leading-none block">
+                  {speed}
+                </span>
+                <span className="text-[8px] font-bold text-[color:var(--rose)] uppercase tracking-tight">KM/H</span>
+              </div>
+              {/* Circular gauge pulse when driving */}
+              {isDriving && (
+                <div className="absolute inset-0 rounded-full border-2 border-t-[color:var(--neon)] border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+              )}
+            </div>
+
+            <div className="text-left space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="rounded bg-[rgba(255,46,147,0.25)] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[color:var(--neon)]">
+                  GEAR: {gear}
+                </span>
+                <span className="text-[10px] font-mono text-[color:var(--brass)]">
+                  {isNitro ? "⚡ NITRO BOOST" : isDriving ? "🏎️ ACCELERATING" : "✦ IDLE / READY"}
+                </span>
+              </div>
+              {/* RPM LED bar */}
+              <div className="flex items-center gap-0.5">
+                {Array.from({ length: 8 }).map((_, i) => {
+                  const active = (rpm / 7500) * 8 > i;
+                  return (
+                    <span
+                      key={i}
+                      className={`h-1.5 w-2 rounded-xs transition-colors ${
+                        active
+                          ? i > 5
+                            ? "bg-red-500 shadow-[0_0_4px_red]"
+                            : "bg-[color:var(--neon)] shadow-[0_0_4px_#ff2e93]"
+                          : "bg-white/10"
+                      }`}
+                    />
+                  );
+                })}
+                <span className="ml-1 text-[9px] font-mono text-white/50">{rpm} RPM</span>
+              </div>
+              <p className="text-[10px] text-[color:var(--text-soft)]">
+                Trip: <strong className="font-mono text-[color:var(--champagne)]">{currentIdx * 25 + 10} km</strong> · Milestone {currentIdx + 1}/{MILESTONES.length}
+              </p>
+            </div>
           </div>
 
-          <div className="rounded-xl border border-[color:var(--brass)]/30 bg-[rgba(18,6,26,0.7)] px-3 py-1.5 backdrop-blur-md text-xs text-[color:var(--champagne)]">
-            <span className="text-[color:var(--brass)] uppercase text-[10px] tracking-wider block">Gifts Unwrapped</span>
-            <strong className="font-mono text-sm text-[color:var(--neon)]">
-              {openedGifts.size} / {MILESTONES.length}
-            </strong>{" "}
-            🎁
-          </div>
+          {/* Quick Driving Controls in Cockpit */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Horn Button */}
+            <button
+              type="button"
+              onClick={honkHorn}
+              className="flex items-center gap-1 rounded-xl border border-[color:var(--rose)]/40 bg-[rgba(255,46,147,0.18)] px-2.5 py-1.5 text-xs font-bold text-[color:var(--champagne)] shadow-[0_0_10px_rgba(255,46,147,0.25)] active:scale-95 transition-all hover:border-[color:var(--rose)]"
+              title="Honk Car Horn (H key)"
+            >
+              <Volume2 size={14} className="text-[color:var(--rose)]" />
+              <span className="hidden sm:inline">Horn</span>
+            </button>
 
-          {/* Beep Beep Horn Button */}
-          <button
-            type="button"
-            onClick={honkHorn}
-            className="flex items-center gap-1.5 rounded-xl border border-[color:var(--rose)]/40 bg-[rgba(255,46,147,0.2)] px-3 py-1.5 text-xs font-bold text-[color:var(--champagne)] shadow-[0_0_12px_rgba(255,46,147,0.3)] active:scale-95 transition-all hover:border-[color:var(--rose)]"
-            title="Honk Car Horn"
-          >
-            <Volume2 size={14} className="text-[color:var(--rose)]" />
-            <span>Honk Horn 🎺</span>
-          </button>
+            {/* Nitro Boost Button */}
+            <button
+              type="button"
+              onClick={triggerNitro}
+              disabled={isDriving}
+              className="flex items-center gap-1 rounded-xl border border-cyan-400/50 bg-[radial-gradient(ellipse,rgba(56,189,248,0.25)_0%,rgba(14,165,233,0.1)_100%)] px-3 py-1.5 text-xs font-bold text-cyan-200 shadow-[0_0_14px_rgba(56,189,248,0.4)] active:scale-95 transition-all hover:border-cyan-300 disabled:opacity-50"
+              title="Nitro Turbo Boost (N key)"
+            >
+              <Flame size={14} className="text-cyan-300 animate-pulse" />
+              <span>NITRO ⚡</span>
+            </button>
+
+            {/* Gas Pedal / Drive Button */}
+            <button
+              type="button"
+              onClick={driveNext}
+              disabled={currentIdx === MILESTONES.length - 1 || isDriving}
+              className="btn-museum !min-h-0 !py-1.5 !px-3.5 text-xs shadow-[0_0_16px_rgba(255,46,147,0.6)] disabled:opacity-40"
+              title="Accelerate / Next Stop (Right Arrow / D)"
+            >
+              <span className="flex items-center gap-1">
+                <span>Gas 🏎️</span>
+                <ChevronRight size={14} />
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Milestone Stepper Pills */}
@@ -298,11 +428,12 @@ export default function HistoryScene({ onNext }: { onNext?: () => void }) {
               <button
                 key={m.id}
                 type="button"
-                onClick={() => driveTo(idx)}
-                className={`relative flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all whitespace-nowrap ${isActive
-                  ? "border-2 border-[color:var(--rose)] bg-[rgba(255,46,147,0.3)] text-[color:var(--champagne)] shadow-[0_0_16px_rgba(255,46,147,0.6)] scale-105"
-                  : "border border-white/10 bg-[rgba(18,6,26,0.6)] text-white/60 hover:text-white hover:border-white/20"
-                  }`}
+                onClick={() => driveTo(idx, false)}
+                className={`relative flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all whitespace-nowrap ${
+                  isActive
+                    ? "border-2 border-[color:var(--rose)] bg-[rgba(255,46,147,0.3)] text-[color:var(--champagne)] shadow-[0_0_16px_rgba(255,46,147,0.6)] scale-105"
+                    : "border border-white/10 bg-[rgba(18,6,26,0.6)] text-white/60 hover:text-white hover:border-white/20"
+                }`}
               >
                 <span>{m.emoji}</span>
                 <span className="text-[11px] font-mono">{m.displayDate}</span>
@@ -313,187 +444,257 @@ export default function HistoryScene({ onNext }: { onNext?: () => void }) {
         </div>
       </div>
 
-      {/* ── THE HIGHWAY & CAR STAGE ── */}
-      <div className="relative mt-6 w-full rounded-2xl border border-[color:var(--brass)]/30 bg-[radial-gradient(ellipse_at_center,rgba(26,10,36,0.85)_0%,rgba(10,3,16,0.95)_100%)] p-4 sm:p-6 shadow-[0_0_40px_rgba(0,0,0,0.8)] backdrop-blur-md overflow-hidden">
-        {/* Night Road Horizon & Streetlights */}
-        <div className="absolute inset-0 pointer-events-none opacity-40">
-          <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-[rgba(255,46,147,0.15)] to-transparent" />
+      {/* ── THE REALISTIC HIGHWAY & CAR STAGE ── */}
+      <div className="relative mt-6 w-full rounded-2xl border border-[color:var(--brass)]/30 bg-[radial-gradient(ellipse_at_center,rgba(26,10,36,0.92)_0%,rgba(10,3,16,0.98)_100%)] p-4 sm:p-6 shadow-[0_0_40px_rgba(0,0,0,0.85)] backdrop-blur-md overflow-hidden">
+        {/* Night Sky Horizon, Mountain Silhouettes & Crescent Moon */}
+        <div className="absolute inset-0 pointer-events-none opacity-50">
+          <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-[rgba(255,46,147,0.2)] via-[rgba(147,51,234,0.1)] to-transparent" />
+          {/* Distant stars */}
+          <div className="absolute top-2 left-10 h-1 w-1 rounded-full bg-white animate-ping" />
+          <div className="absolute top-4 left-1/3 h-1 w-1 rounded-full bg-yellow-200" />
+          <div className="absolute top-3 right-16 text-xs text-yellow-200/80">🌙</div>
           <div className="absolute top-1/2 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[color:var(--brass)]/40 to-transparent" />
         </div>
 
         {/* Milestone Road Signpost */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
           <div className="text-left">
-            <span className="text-[10px] uppercase tracking-[0.25em] text-[color:var(--brass)]">Destination</span>
+            <span className="text-[10px] uppercase tracking-[0.25em] text-[color:var(--brass)] font-semibold">
+              Checkpoint Destination
+            </span>
             <h2 className="font-display text-lg sm:text-xl font-bold text-[color:var(--champagne)]">
-              {activeMilestone.displayDate}
+              {activeMilestone.displayDate} · {activeMilestone.title.split(" ").slice(0, 4).join(" ")}…
             </h2>
           </div>
           <div className="text-right">
-            <span className="text-[10px] uppercase tracking-[0.25em] text-[color:var(--brass)]">Road Stop</span>
-            <p className="text-xs font-mono font-semibold text-[color:var(--rose)]">
-              Mile {currentIdx * 25 + 10} km · {activeMilestone.time || "Memories"}
+            <span className="text-[10px] uppercase tracking-[0.25em] text-[color:var(--brass)] font-semibold">
+              Highway Mile
+            </span>
+            <p className="text-xs font-mono font-bold text-[color:var(--rose)]">
+              Mile {currentIdx * 25 + 10} KM · {activeMilestone.time || "Memories"}
             </p>
           </div>
         </div>
 
-        {/* THE ROADWAY */}
-        <div className="relative mt-4 h-36 sm:h-44 w-full rounded-xl bg-gradient-to-b from-[#1b1724] via-[#120f18] to-[#0c0910] border border-white/10 overflow-hidden shadow-inner flex items-center justify-between px-4 sm:px-12">
+        {/* THE REAL DRIVING ROADWAY */}
+        <div className="relative mt-4 h-40 sm:h-48 w-full rounded-xl bg-gradient-to-b from-[#181220] via-[#0f0a15] to-[#07040a] border border-white/15 overflow-hidden shadow-[inset_0_2px_12px_rgba(0,0,0,0.9)] flex items-center justify-between px-3 sm:px-10">
+          {/* Animated Speed Lines (active during drive & nitro) */}
+          {isDriving && (
+            <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
+              <div className="absolute top-4 left-0 right-0 h-[1px] bg-white/40 animate-[speedStreak_0.15s_linear_infinite]" />
+              <div className="absolute top-10 left-0 right-0 h-[1.5px] bg-cyan-300/50 animate-[speedStreak_0.12s_linear_infinite]" />
+              <div className="absolute bottom-8 left-0 right-0 h-[1px] bg-[color:var(--rose)]/60 animate-[speedStreak_0.18s_linear_infinite]" />
+            </div>
+          )}
+
+          {/* Roadside Lampposts (streaming backward when driving) */}
+          <div className="absolute top-2 left-6 sm:left-14 flex flex-col items-center pointer-events-none opacity-60">
+            <div className="h-2 w-2 rounded-full bg-yellow-300 shadow-[0_0_12px_#fde047]" />
+            <div className="h-10 w-[2px] bg-white/20" />
+          </div>
+
           {/* Animated Road Lane Dashes */}
-          <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 h-[3px] flex items-center justify-around pointer-events-none overflow-hidden">
+          <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 h-[4px] flex items-center justify-around pointer-events-none overflow-hidden">
             <div
-              className={`w-full flex justify-between gap-4 transition-transform duration-500 ${isDriving ? "animate-[roadDash_0.2s_linear_infinite]" : ""
-                }`}
+              className={`w-full flex justify-between gap-4 transition-transform duration-300 ${
+                isDriving
+                  ? isNitro
+                    ? "animate-[fastRoadDash_0.08s_linear_infinite]"
+                    : "animate-[fastRoadDash_0.13s_linear_infinite]"
+                  : ""
+              }`}
             >
-              {Array.from({ length: 16 }).map((_, i) => (
+              {Array.from({ length: 18 }).map((_, i) => (
                 <span
                   key={i}
-                  className="h-[3px] w-8 sm:w-12 bg-gradient-to-r from-[color:var(--brass)] to-yellow-200/90 rounded-full shadow-[0_0_8px_rgba(244,223,180,0.8)] shrink-0"
+                  className="h-[3.5px] w-9 sm:w-14 bg-gradient-to-r from-[color:var(--brass)] via-yellow-200 to-[color:var(--champagne)] rounded-full shadow-[0_0_8px_rgba(244,223,180,0.85)] shrink-0"
                 />
               ))}
             </div>
           </div>
 
           {/* Road Curb Reflectors */}
-          <div className="absolute bottom-1 left-0 right-0 flex justify-around opacity-40">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <span key={i} className="h-1.5 w-1.5 rounded-full bg-red-400 shadow-[0_0_4px_red]" />
+          <div className="absolute bottom-1.5 left-0 right-0 flex justify-around opacity-50">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <span key={i} className="h-1.5 w-1.5 rounded-full bg-red-400 shadow-[0_0_5px_red]" />
             ))}
           </div>
 
-          {/* THE CAR (Animated SVG) */}
+          {/* ══════════════════════════════════════════════════════════
+              THE SPORTS CAR (Realistic Convertible with Prajeeth & Manju)
+              ══════════════════════════════════════════════════════════ */}
           <div
-            className={`relative z-20 flex flex-col items-center transition-all duration-700 ${isDriving ? "translate-x-6 scale-95" : "translate-x-0 scale-100"
-              }`}
+            className={`relative z-20 flex flex-col items-center transition-all duration-500 ${
+              isDriving
+                ? isNitro
+                  ? "translate-x-12 scale-105 animate-[carDriveTilt_0.4s_ease-in-out_infinite]"
+                  : "translate-x-8 scale-100 animate-[carDriveTilt_0.5s_ease-in-out_infinite]"
+                : "translate-x-0 scale-100 animate-[carSuspension_2.4s_ease-in-out_infinite]"
+            }`}
           >
-            {/* Honk bubble */}
+            {/* Horn bubble */}
             {honking && (
-              <div className="absolute -top-10 flex items-center gap-1 rounded-full border border-[color:var(--rose)] bg-[rgba(255,46,147,0.9)] px-3 py-1 font-script text-xs text-white shadow-[0_0_15px_rgba(255,46,147,0.8)] animate-bounce z-30">
-                <span>Beep Beep!</span>
-                <Heart size={12} fill="white" />
+              <div className="absolute -top-11 flex items-center gap-1.5 rounded-full border border-[color:var(--rose)] bg-[rgba(255,46,147,0.95)] px-3 py-1 font-script text-xs font-bold text-white shadow-[0_0_20px_rgba(255,46,147,0.9)] animate-bounce z-30">
+                <span>Beep Beep! Manju 💖</span>
+                <Heart size={13} fill="white" />
               </div>
             )}
 
-            {/* Car Vector */}
-            <div className="relative w-36 sm:w-44 select-none">
-              {/* Headlights Light Cone on the Road */}
+            {/* Car Vector Wrapper */}
+            <div className="relative w-40 sm:w-52 select-none">
+              {/* Headlights Light Beam Cutting the Road Ahead */}
               <div
-                className="absolute top-4 -right-16 sm:-right-24 w-28 sm:w-36 h-12 pointer-events-none"
+                className="absolute top-5 -right-20 sm:-right-32 w-32 sm:w-44 h-14 pointer-events-none z-10"
                 style={{
-                  background:
-                    "radial-gradient(ellipse at left, rgba(255,255,220,0.7) 0%, rgba(255,240,180,0.35) 45%, transparent 80%)",
-                  filter: "blur(4px)",
-                  transform: "perspective(200px) rotateY(-18deg)",
+                  background: isNitro
+                    ? "radial-gradient(ellipse at left, rgba(56,189,248,0.9) 0%, rgba(14,165,233,0.5) 45%, transparent 80%)"
+                    : "radial-gradient(ellipse at left, rgba(255,255,230,0.85) 0%, rgba(255,240,180,0.45) 45%, transparent 80%)",
+                  filter: "blur(5px)",
+                  transform: "perspective(200px) rotateY(-16deg)",
                 }}
               />
 
-              {/* SVG Convertible Car */}
+              {/* Realistic SVG Sports Convertible */}
               <svg
-                viewBox="0 0 200 90"
-                className="w-full drop-shadow-[0_8px_16px_rgba(0,0,0,0.8)]"
+                viewBox="0 0 220 95"
+                className="w-full drop-shadow-[0_10px_20px_rgba(0,0,0,0.9)]"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
               >
                 {/* Underglow Neon */}
-                <ellipse cx="100" cy="82" rx="75" ry="6" fill="#ff2e93" opacity="0.6" filter="blur(5px)" />
+                <ellipse
+                  cx="110"
+                  cy="86"
+                  rx="85"
+                  ry="7"
+                  fill={isNitro ? "#38bdf8" : "#ff2e93"}
+                  opacity={isDriving ? "0.9" : "0.6"}
+                  filter="blur(5px)"
+                />
 
-                {/* Car Main Body (Metallic Rose-Red) */}
+                {/* Car Main Body (Metallic Racing Rose-Magenta) */}
                 <path
-                  d="M15 65 C15 55 30 50 50 48 L75 32 C85 24 125 24 140 32 L170 48 C185 52 195 58 195 68 C195 72 190 75 180 75 L30 75 C20 75 15 72 15 65 Z"
-                  fill="url(#carBodyGrad)"
+                  d="M16 68 C16 56 32 51 54 49 L82 31 C94 22 138 22 154 31 L186 49 C204 53 214 60 214 71 C214 76 208 79 196 79 L34 79 C22 79 16 76 16 68 Z"
+                  fill="url(#sportsCarGrad)"
                   stroke="#ff7eb6"
-                  strokeWidth="1.5"
+                  strokeWidth="1.8"
                 />
 
                 {/* Windshield & Cabin */}
                 <path
-                  d="M78 34 L125 34 C132 34 138 38 142 45 L155 48 L70 48 L78 34 Z"
-                  fill="url(#windshieldGrad)"
+                  d="M86 33 L138 33 C146 33 152 38 156 46 L170 50 L78 50 L86 33 Z"
+                  fill="url(#glassGrad)"
                   stroke="#ffffff"
-                  strokeWidth="1"
-                  opacity="0.85"
+                  strokeWidth="1.2"
+                  opacity="0.9"
                 />
 
-                {/* Driver & Passenger Romantic Silhouettes */}
-                <circle cx="102" cy="40" r="5" fill="#f4dfb4" />
-                <circle cx="118" cy="40" r="5" fill="#ff7eb6" />
-                <path d="M110 38 L110 44" stroke="#ff2e93" strokeWidth="2" strokeLinecap="round" />
-
-                {/* Front Headlight (Bright Gold Glow) */}
-                <circle cx="188" cy="58" r="5" fill="#fff9d6" />
-                <circle cx="188" cy="58" r="9" fill="#ffd700" opacity="0.5" />
-
-                {/* Rear Taillight */}
-                <rect x="15" y="56" width="6" height="7" rx="2" fill="#ff2e93" />
-
-                {/* Chrome Side Trim Accent */}
-                <path d="M50 58 L160 58" stroke="#f4dfb4" strokeWidth="1.5" opacity="0.8" />
-
-                {/* Wheel Arches */}
-                <path d="M38 75 A 18 18 0 0 1 74 75 Z" fill="#0c0414" />
-                <path d="M136 75 A 18 18 0 0 1 172 75 Z" fill="#0c0414" />
-
-                {/* Front Wheel */}
-                <g className={isDriving ? "animate-[spin_0.3s_linear_infinite]" : ""}>
-                  <circle cx="154" cy="74" r="14" fill="#171220" stroke="#f4dfb4" strokeWidth="2" />
-                  <circle cx="154" cy="74" r="7" fill="#ff2e93" />
-                  <path d="M154 62 L154 86 M142 74 L166 74" stroke="#ffffff" strokeWidth="1.5" />
+                {/* Driver (Prajeeth) & Passenger (Manju) */}
+                <g>
+                  {/* Prajeeth */}
+                  <circle cx="112" cy="40" r="6" fill="#f4dfb4" />
+                  <path d="M106 37 Q 112 33 118 37" stroke="#3b0724" strokeWidth="2" strokeLinecap="round" />
+                  {/* Manju */}
+                  <circle cx="130" cy="40" r="6" fill="#fcd34d" />
+                  <path d="M124 37 Q 130 33 136 37" stroke="#3b0724" strokeWidth="2" strokeLinecap="round" />
+                  {/* Love heart between them */}
+                  <path
+                    d="M121 34 C121 32 119 31 118 32 C117 33 121 37 121 37 C121 37 125 33 124 32 C123 31 121 32 121 34 Z"
+                    fill="#ff2e93"
+                    className="animate-pulse"
+                  />
                 </g>
 
-                {/* Rear Wheel */}
-                <g className={isDriving ? "animate-[spin_0.3s_linear_infinite]" : ""}>
-                  <circle cx="56" cy="74" r="14" fill="#171220" stroke="#f4dfb4" strokeWidth="2" />
-                  <circle cx="56" cy="74" r="7" fill="#ff2e93" />
-                  <path d="M56 62 L56 86 M44 74 L68 74" stroke="#ffffff" strokeWidth="1.5" />
+                {/* Front Headlight (High Beam LED Projector) */}
+                <circle cx="206" cy="62" r="6" fill="#fffbe8" />
+                <circle cx="206" cy="62" r="10" fill={isNitro ? "#38bdf8" : "#ffd700"} opacity="0.6" />
+
+                {/* Rear Taillight Bar */}
+                <rect x="16" y="60" width="8" height="8" rx="2" fill="#ff2e93" className="animate-pulse" />
+
+                {/* Side Racing Stripe */}
+                <path d="M54 62 L178 62" stroke="#f4dfb4" strokeWidth="2" opacity="0.9" />
+
+                {/* Wheel Arches */}
+                <path d="M42 79 A 20 20 0 0 1 82 79 Z" fill="#08030c" />
+                <path d="M150 79 A 20 20 0 0 1 190 79 Z" fill="#08030c" />
+
+                {/* Front Sports Alloy Wheel */}
+                <g className={isDriving ? "animate-[spin_0.15s_linear_infinite]" : ""}>
+                  <circle cx="170" cy="78" r="15" fill="#140d1a" stroke="#f4dfb4" strokeWidth="2.5" />
+                  <circle cx="170" cy="78" r="8" fill="#ff2e93" />
+                  <path d="M170 65 L170 91 M157 78 L183 78" stroke="#ffffff" strokeWidth="1.8" />
+                  <circle cx="170" cy="78" r="3" fill="#ffd700" />
+                </g>
+
+                {/* Rear Sports Alloy Wheel */}
+                <g className={isDriving ? "animate-[spin_0.15s_linear_infinite]" : ""}>
+                  <circle cx="62" cy="78" r="15" fill="#140d1a" stroke="#f4dfb4" strokeWidth="2.5" />
+                  <circle cx="62" cy="78" r="8" fill="#ff2e93" />
+                  <path d="M62 65 L62 91 M49 78 L75 78" stroke="#ffffff" strokeWidth="1.8" />
+                  <circle cx="62" cy="78" r="3" fill="#ffd700" />
                 </g>
 
                 {/* Gradients */}
                 <defs>
-                  <linearGradient id="carBodyGrad" x1="0" y1="0" x2="1" y2="1">
+                  <linearGradient id="sportsCarGrad" x1="0" y1="0" x2="1" y2="1">
                     <stop offset="0%" stopColor="#ff2e93" />
-                    <stop offset="60%" stopColor="#be123c" />
-                    <stop offset="100%" stopColor="#4c0519" />
+                    <stop offset="50%" stopColor="#be123c" />
+                    <stop offset="100%" stopColor="#3f0314" />
                   </linearGradient>
-                  <linearGradient id="windshieldGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.8" />
-                    <stop offset="100%" stopColor="#0f172a" stopOpacity="0.9" />
+                  <linearGradient id="glassGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.85" />
+                    <stop offset="100%" stopColor="#0f172a" stopOpacity="0.95" />
                   </linearGradient>
                 </defs>
               </svg>
 
-              {/* Exhaust Floating Heart Puff */}
+              {/* Dual Exhaust: Nitro Flames & Heart Smoke */}
               {isDriving && (
-                <div className="absolute bottom-2 -left-3 animate-ping">
-                  <Heart size={14} className="text-[color:var(--rose)]" fill="currentColor" />
-                </div>
+                <>
+                  {isNitro ? (
+                    /* Rocket Nitro Flame */
+                    <div className="absolute bottom-3 -left-7 animate-[nitroFlame_0.1s_linear_infinite] flex items-center">
+                      <Flame size={24} className="text-cyan-300 drop-shadow-[0_0_12px_#38bdf8]" fill="currentColor" />
+                    </div>
+                  ) : (
+                    /* Puffed Heart Exhaust Smoke */
+                    <div className="absolute bottom-3 -left-4 animate-ping">
+                      <Heart size={16} className="text-[color:var(--rose)]" fill="currentColor" />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
 
-          {/* CHECKPOINT DESTINATION: THE 3D GIFT BOX STAND */}
+          {/* ══════════════════════════════════════════════════════════
+              CHECKPOINT DESTINATION: THE 3D GIFT BOX STAND
+              ══════════════════════════════════════════════════════════ */}
           <div ref={giftRef} className="relative z-20 flex flex-col items-center">
             {/* Glowing Pedestal */}
-            <div className="absolute -bottom-2 w-24 h-6 rounded-full bg-[radial-gradient(ellipse,rgba(255,46,147,0.5)_0%,transparent_70%)] pointer-events-none" />
+            <div className="absolute -bottom-2 w-28 h-7 rounded-full bg-[radial-gradient(ellipse,rgba(255,46,147,0.6)_0%,transparent_70%)] pointer-events-none" />
 
             {/* Gift Box Container */}
             <div
               onClick={openGift}
-              className={`relative cursor-pointer transition-transform duration-300 ${!isGiftOpened ? "hover:scale-110 active:scale-95 animate-bounce" : "scale-100"
-                }`}
+              className={`relative cursor-pointer transition-transform duration-300 ${
+                !isGiftOpened ? "hover:scale-110 active:scale-95 animate-bounce" : "scale-100"
+              }`}
               title={isGiftOpened ? "Gift is unwrapped" : "Tap to open this gift!"}
             >
               {/* Unopened 3D Gift Box SVG */}
               {!isGiftOpened ? (
                 <div className="relative flex flex-col items-center">
                   {/* Floating Prompt Pill */}
-                  <div className="absolute -top-8 whitespace-nowrap rounded-full border border-[color:var(--champagne)] bg-[rgba(18,6,26,0.9)] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[color:var(--champagne)] shadow-[0_0_12px_rgba(255,46,147,0.6)] animate-pulse">
+                  <div className="absolute -top-9 whitespace-nowrap rounded-full border border-[color:var(--champagne)] bg-[rgba(18,6,26,0.95)] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[color:var(--champagne)] shadow-[0_0_16px_rgba(255,46,147,0.7)] animate-pulse">
                     🎁 Tap to Open!
                   </div>
 
                   {/* 3D Box Illustration */}
                   <div
-                    className={`h-20 w-20 rounded-2xl bg-gradient-to-br ${activeMilestone.boxColor.base} border-2 border-white/30 shadow-[0_10px_25px_rgba(0,0,0,0.6)] flex items-center justify-center relative overflow-hidden`}
-                    style={{ filter: `drop-shadow(0 0 16px ${activeMilestone.boxColor.glow})` }}
+                    className={`h-22 w-22 rounded-2xl bg-gradient-to-br ${activeMilestone.boxColor.base} border-2 border-white/30 shadow-[0_10px_25px_rgba(0,0,0,0.7)] flex items-center justify-center relative overflow-hidden`}
+                    style={{ filter: `drop-shadow(0 0 18px ${activeMilestone.boxColor.glow})` }}
                   >
                     {/* Vertical Ribbon */}
                     <div
@@ -518,9 +719,11 @@ export default function HistoryScene({ onNext }: { onNext?: () => void }) {
                 /* Opened Gift Box with Stardust */
                 <div className="relative flex flex-col items-center animate-[fadeUp_.5s_ease_both]">
                   <div
-                    className={`h-16 w-18 rounded-xl bg-gradient-to-br ${activeMilestone.boxColor.base} border border-white/20 shadow-lg flex items-center justify-center relative opacity-85`}
+                    className={`h-18 w-20 rounded-xl bg-gradient-to-br ${activeMilestone.boxColor.base} border border-white/20 shadow-lg flex items-center justify-center relative opacity-90`}
                   >
-                    <span className="text-2xl animate-spin">{activeMilestone.emoji}</span>
+                    <span className="text-3xl animate-spin" style={{ animationDuration: "8s" }}>
+                      {activeMilestone.emoji}
+                    </span>
                   </div>
                   <span className="mt-1 text-[10px] uppercase font-bold text-[color:var(--neon)] tracking-wider">
                     Unwrapped ✓
@@ -609,7 +812,7 @@ export default function HistoryScene({ onNext }: { onNext?: () => void }) {
           className="btn-brass !min-h-0 !py-2 !px-4 text-xs disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1.5"
         >
           <ChevronLeft size={16} />
-          <span>Previous Stop</span>
+          <span>← Previous Stop</span>
         </button>
 
         <span className="text-[11px] text-[color:var(--brass)] font-mono">
@@ -622,7 +825,7 @@ export default function HistoryScene({ onNext }: { onNext?: () => void }) {
           disabled={currentIdx === MILESTONES.length - 1 || isDriving}
           className="btn-brass !min-h-0 !py-2 !px-4 text-xs disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1.5"
         >
-          <span>Drive to Next Stop</span>
+          <span>Drive to Next Stop 🏎️</span>
           <ChevronRight size={16} />
         </button>
       </div>
