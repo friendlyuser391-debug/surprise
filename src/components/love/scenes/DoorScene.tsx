@@ -395,13 +395,8 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
                     <p className="font-script text-base text-[color:var(--rose)]">
                       &ldquo;Look at the countdown clock above…&rdquo;
                     </p>
-                    <div className="rounded-lg bg-black/40 p-2.5 font-mono text-[11px] text-[color:var(--champagne)] space-y-1 border border-white/10">
-                      <p>✨ <strong className="text-[color:var(--neon)]">Day count + 1</strong></p>
-                      <p>✨ <strong className="text-[color:var(--neon)]">Hour count + 1</strong></p>
-                      <p>✨ <strong className="text-[color:var(--neon)]">Minutes count + 60</strong></p>
-                    </div>
                     <p className="text-[10px] text-[color:var(--brass)]">
-                      Combine them together to unlock the door! 💖
+                      Just prank !!! Ippo Kandupudi Pakalam
                     </p>
                   </div>
                 </details>

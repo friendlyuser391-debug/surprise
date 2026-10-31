@@ -39,7 +39,7 @@ import {
   Sparkles,
   Unlock,
 } from "lucide-react";
-import { love } from "@/lib/love-config";
+import { isPasswordAutoVisible, love } from "@/lib/love-config";
 import { fx } from "@/lib/fx";
 import { sound } from "@/lib/sound";
 import { useIsReducedMotion } from "../Ambient";
@@ -85,10 +85,11 @@ const INNER_SECTORS: readonly RingSector[] = [
 ];
 const TARGET_INNER_IDX = 0; // Ruby Heart
 
-// Starting scrambled state: requires counter-intuitive linked moves to solve
-const INITIAL_OUTER = 1; // Orion
-const INITIAL_MIDDLE = 4; // Sacred Melody
-const INITIAL_INNER = 3; // Emerald
+// Starting scrambled state: requires 8 linked moves to solve (Depth 8 hard mode)
+// Secret Solution: 3x Outer Right, 3x Middle Right, 2x Inner Right!
+const INITIAL_OUTER = 4; // Polaris
+const INITIAL_MIDDLE = 1; // Golden Key
+const INITIAL_INNER = 4; // Royal Sapphire
 
 const FINAL_SECRET = love.secretGame.postGamePassword; // "0423"
 
@@ -103,13 +104,24 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
   const [gameWon, setGameWon] = useState(false);
   const wonHandledRef = useRef(false);
 
-  // Stage: "astrolabe" -> "password"
-  const [stage, setStage] = useState<"astrolabe" | "password">("astrolabe");
+  // Stages: "astrolabe" -> "password" (0423) -> "rest" -> "celebration" (Pmraanejeu)
+  const [stage, setStage] = useState<"astrolabe" | "password" | "rest" | "celebration">("astrolabe");
+
+  // 0423 password state
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState("");
   const [pwChances, setPwChances] = useState(3);
   const [pwShake, setPwShake] = useState(0);
   const pwInputRef = useRef<HTMLInputElement>(null);
+
+  // Pmraanejeu celebration password state
+  const [celebInput, setCelebInput] = useState("");
+  const [celebError, setCelebError] = useState("");
+  const [celebShake, setCelebShake] = useState(0);
+  const celebInputRef = useRef<HTMLInputElement>(null);
+
+  // Secret Creator Shortcut (triple tap on Crown Ray)
+  const [crownTaps, setCrownTaps] = useState(0);
 
   // Check which rings are currently locked at 12 o'clock
   const outerAligned = outerIdx === TARGET_OUTER_IDX;
@@ -117,14 +129,35 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
   const innerAligned = innerIdx === TARGET_INNER_IDX;
   const totalAligned = (outerAligned ? 1 : 0) + (middleAligned ? 1 : 0) + (innerAligned ? 1 : 0);
 
-  // Linked gear rotation physics
+  // Automatic solve after November 4, 12:01 AM (or ?reveal=1)
+  useEffect(() => {
+    if (stage === "astrolabe" && !gameWon && isPasswordAutoVisible()) {
+      const timer = setTimeout(() => {
+        sound.chime(1200);
+        sound.heartBoom();
+        setOuterIdx(TARGET_OUTER_IDX);
+        setMiddleIdx(TARGET_MIDDLE_IDX);
+        setInnerIdx(TARGET_INNER_IDX);
+        setGameWon(true);
+        if (!reduced) {
+          fx.confettiBurst(window.innerWidth / 2, window.innerHeight * 0.38, 140);
+          fx.doubleHeartBurst(window.innerWidth / 2, window.innerHeight * 0.32);
+        }
+        setTimeout(() => setStage("password"), 900);
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, [stage, gameWon, reduced]);
+
+  // Linked gear rotation physics (Hard Mode)
   const rotateOuter = useCallback(
     (dir: 1 | -1) => {
       if (gameWon || stage !== "astrolabe") return;
       sound.click();
       setOuterIdx((o) => (o + dir + 6) % 6);
-      // Law 1: Outer turn drives Middle by +1
-      setMiddleIdx((m) => (m + dir + 6) % 6);
+      // Outer drives Middle by +2, Inner by -1
+      setMiddleIdx((m) => (m + dir * 2 + 12) % 6);
+      setInnerIdx((i) => (i - dir + 6) % 6);
       setMoves((m) => m + 1);
     },
     [gameWon, stage]
@@ -135,8 +168,9 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
       if (gameWon || stage !== "astrolabe") return;
       sound.click();
       setMiddleIdx((m) => (m + dir + 6) % 6);
-      // Law 2: Middle turn drives Inner by +2
-      setInnerIdx((i) => (i + dir * 2 + 12) % 6);
+      // Middle drives Inner by +3, Outer by +1
+      setInnerIdx((i) => (i + dir * 3 + 18) % 6);
+      setOuterIdx((o) => (o + dir + 6) % 6);
       setMoves((m) => m + 1);
     },
     [gameWon, stage]
@@ -147,12 +181,34 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
       if (gameWon || stage !== "astrolabe") return;
       sound.click();
       setInnerIdx((i) => (i + dir + 6) % 6);
-      // Law 3: Inner turn counter-rotates Outer by -1
-      setOuterIdx((o) => (o - dir + 6) % 6);
+      // Inner drives Outer by -2, Middle by -1
+      setOuterIdx((o) => (o - dir * 2 + 12) % 6);
+      setMiddleIdx((m) => (m - dir + 6) % 6);
       setMoves((m) => m + 1);
     },
     [gameWon, stage]
   );
+
+  // Secret creator tap on the crown ray: 3 taps instant solve!
+  const tapCrown = useCallback(() => {
+    sound.click();
+    const next = crownTaps + 1;
+    setCrownTaps(next);
+    if (next >= 3) {
+      sound.chime(1200);
+      sound.heartBoom();
+      setOuterIdx(TARGET_OUTER_IDX);
+      setMiddleIdx(TARGET_MIDDLE_IDX);
+      setInnerIdx(TARGET_INNER_IDX);
+      setGameWon(true);
+      if (!reduced) {
+        fx.confettiBurst(window.innerWidth / 2, window.innerHeight * 0.38, 140);
+        fx.doubleHeartBurst(window.innerWidth / 2, window.innerHeight * 0.32);
+      }
+      setTimeout(() => setStage("password"), 800);
+      setCrownTaps(0);
+    }
+  }, [crownTaps, reduced]);
 
   // Reset to initial puzzle scramble
   const resetChamber = useCallback(() => {
@@ -177,35 +233,37 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
         fx.doubleHeartBurst(window.innerWidth / 2, window.innerHeight * 0.32);
         fx.sealBurst(window.innerWidth / 2, window.innerHeight * 0.5);
       }
-      // Guaranteed transition to the secret password section
+      // Transition to the secret password section
       setTimeout(() => {
         setStage("password");
       }, 750);
     }
   }, [outerAligned, middleAligned, innerAligned, stage, reduced]);
 
-  // Focus password input on entering password stage
+  // Focus password inputs on entering respective stages
   useEffect(() => {
     if (stage === "password") {
       setTimeout(() => pwInputRef.current?.focus(), 250);
+    } else if (stage === "celebration") {
+      setTimeout(() => celebInputRef.current?.focus(), 250);
     }
   }, [stage]);
 
-  // Post-game secret password check ("0423")
+  // Post-game secret password check ("0423") -> transitions to rest stage
   const submitPassword = useCallback(
     (e?: React.FormEvent) => {
       if (e) e.preventDefault();
       const normalized = pwInput.replace(/\s+/g, "").trim();
       if (normalized === FINAL_SECRET || normalized === "0423") {
         sound.heartBoom();
-        sound.chime(1200);
+        sound.chime(1100);
         if (!reduced) {
-          fx.confettiBurst(window.innerWidth / 2, window.innerHeight * 0.4, 160);
+          fx.confettiBurst(window.innerWidth / 2, window.innerHeight * 0.4, 120);
           fx.doubleHeartBurst(window.innerWidth / 2, window.innerHeight * 0.3);
           fx.heartShower();
-          fx.fireworks(4500);
         }
-        setTimeout(() => onNext(), 300);
+        // Move to rest scene with gentle animations
+        setStage("rest");
       } else {
         sound.pop();
         setPwError("Aiyayo! Thappana code! Konjam yosichu paaru Manju! 😉");
@@ -214,16 +272,56 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
         setPwInput("");
       }
     },
-    [pwInput, reduced, onNext]
+    [pwInput, reduced]
   );
 
-  // Keyboard controls: Q/W (Outer), A/S (Middle), Z/X (Inner), R (Reset)
+  // Final celebration password check ("Pmraanejeu") -> triggers fireworks
+  const submitCelebration = useCallback(
+    (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      const clean = celebInput.replace(/\s+/g, "").trim().toLowerCase();
+      if (clean === "pmraanejeu") {
+        sound.heartBoom();
+        sound.chime(1200);
+        if (!reduced) {
+          fx.confettiBurst(window.innerWidth / 2, window.innerHeight * 0.4, 160);
+          fx.doubleHeartBurst(window.innerWidth / 2, window.innerHeight * 0.3);
+          fx.heartShower();
+          fx.fireworks(5000);
+        }
+        setTimeout(() => onNext(), 400);
+      } else {
+        sound.pop();
+        setCelebError("Aiyayo! Thappana celebration password! Try again Manju! 😉");
+        setCelebShake((k) => k + 1);
+        setCelebInput("");
+      }
+    },
+    [celebInput, reduced, onNext]
+  );
+
+  // Keyboard controls: Q/W (Outer), A/S (Middle), Z/X (Inner), R (Reset), Enter for forms
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (stage === "password") {
         if (e.key === "Enter") {
           e.preventDefault();
           submitPassword();
+        }
+        return;
+      }
+      if (stage === "celebration") {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          submitCelebration();
+        }
+        return;
+      }
+      if (stage === "rest") {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sound.chime(950);
+          setStage("celebration");
         }
         return;
       }
@@ -239,7 +337,7 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [stage, gameWon, rotateOuter, rotateMiddle, rotateInner, resetChamber, submitPassword]);
+  }, [stage, gameWon, rotateOuter, rotateMiddle, rotateInner, resetChamber, submitPassword, submitCelebration]);
 
   // Calculate rotation angles so current index sits at 12 o'clock (-90° or 0° depending on polar layout)
   // Each sector is 60°. If sector 0 is at 0° (top), then when idx = 0, angle is 0.
@@ -261,10 +359,16 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
         id="sg-title"
         className="font-display neon-text mt-1 text-3xl sm:text-4xl md:text-5xl font-semibold animate-[fadeUp_.9s_ease_.1s_both]"
       >
-        {stage === "astrolabe" ? "The Celestial Astrolabe" : "The Secret Vault Gateway"}
+        {stage === "astrolabe"
+          ? "The Celestial Astrolabe"
+          : stage === "password"
+          ? "The Secret Vault Gateway"
+          : stage === "rest"
+          ? "Chamber of Peaceful Rest"
+          : "The Grand Celebration Gate"}
       </h1>
 
-      {stage === "astrolabe" ? (
+      {stage === "astrolabe" && (
         <>
           <p className="mt-2.5 max-w-md text-xs sm:text-sm text-[color:var(--text-soft)] animate-[fadeUp_1s_ease_.2s_both]">
             Align the three Sacred Keys with the Golden Crown Ray at 12 o&apos;clock.
@@ -305,19 +409,18 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                 <p className="font-semibold text-[color:var(--champagne)]">⚙️ The 3 Coupled Gear Laws:</p>
                 <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[11px]">
                   <li>
-                    <strong>Outer Turn:</strong> Drives the Middle Ring by +1.
+                    <strong>Outer Turn:</strong> Drives the Middle Ring by +2, Inner Ring by -1.
                   </li>
                   <li>
-                    <strong>Middle Turn:</strong> Drives the Inner Ring by +2.
+                    <strong>Middle Turn:</strong> Drives the Inner Ring by +3, Outer Ring by +1.
                   </li>
                   <li>
-                    <strong>Inner Turn:</strong> Counter-rotates the Outer Ring by -1.
+                    <strong>Inner Turn:</strong> Counter-rotates the Outer Ring by -2, Middle Ring by -1.
                   </li>
                 </ol>
               </div>
               <p className="text-[10px] italic text-[color:var(--brass)]">
-                Tip: Because the Inner ring drags the Outer ring backward, use counter-balance moves to solve the
-                astrolabe!
+                Tip: Because the gears are tightly coupled, calculate counter-balance moves to achieve resonance!
               </p>
             </div>
           </details>
@@ -378,13 +481,18 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
               Sized responsively for mobile (320px) to desktop (420px)
               ══════════════════════════════════════════════════════════ */}
           <div className="relative mt-6 flex items-center justify-center">
-            {/* Crown Pointer (12 o'clock Golden Alignment Ray) */}
-            <div className="absolute -top-4 left-1/2 z-30 -translate-x-1/2 flex flex-col items-center pointer-events-none">
+            {/* Crown Pointer (12 o'clock Golden Alignment Ray) - Click 3 times for creator shortcut */}
+            <button
+              type="button"
+              onClick={tapCrown}
+              title="Crown Ray"
+              className="absolute -top-4 left-1/2 z-30 -translate-x-1/2 flex flex-col items-center cursor-pointer active:scale-95 transition-transform bg-transparent border-none p-1 focus:outline-none"
+            >
               <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-[color:var(--champagne)] drop-shadow-[0_0_8px_rgba(244,223,180,0.8)]">
                 Crown Ray
               </span>
               <div className="h-0 w-0 border-x-[8px] border-x-transparent border-t-[12px] border-t-[color:var(--champagne)] drop-shadow-[0_0_10px_rgba(244,223,180,0.9)]" />
-            </div>
+            </button>
 
             {/* Concentric Rotating Astrolabe Canvas/SVG */}
             <div
@@ -605,11 +713,12 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
             </div>
           )}
         </>
-      ) : (
-        /* ══════════════════════════════════════════════════════════
-           STAGE 2: THE FINAL SECRET KEY GATE
-           Pure secret gate — no keys shown, no skip button!
-           ══════════════════════════════════════════════════════════ */
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+          STAGE 2: THE 0423 SECRET PASSWORD GATE
+          ══════════════════════════════════════════════════════════ */}
+      {stage === "password" && (
         <div className="mt-8 flex w-full max-w-md flex-col items-center gap-5 animate-[fadeUp_.8s_ease_both]">
           <div className="flex h-16 w-16 items-center justify-center rounded-full border border-[color:var(--rose)] bg-[rgba(255,46,147,0.2)] shadow-[0_0_26px_rgba(255,46,147,0.5)]">
             <Lock size={30} className="text-[color:var(--champagne)]" />
@@ -620,7 +729,7 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
           </p>
 
           <p className="max-w-md text-xs sm:text-sm text-[color:var(--text-soft)]">
-            You solved the Celestial Astrolabe! Enter the secret key to ignite the sky with celebration fireworks.
+            You cracked the Celestial Astrolabe! Enter the secret key to proceed.
           </p>
 
           {/* Chances left for the password */}
@@ -678,10 +787,10 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                 autoComplete="off"
                 className="h-12 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center text-lg sm:text-xl font-bold tracking-[0.35em] text-[color:var(--champagne)] placeholder:text-white/20 uppercase focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50"
               />
-              <MagneticButton type="submit" className="btn-museum !px-5" ariaLabel="Unlock Fireworks">
+              <MagneticButton type="submit" className="btn-museum !px-5" ariaLabel="Unlock Vault">
                 <span className="flex items-center gap-1.5">
                   <Unlock size={16} aria-hidden="true" />
-                  <span>Ignite Sky</span>
+                  <span>Unlock</span>
                 </span>
               </MagneticButton>
             </div>
@@ -689,6 +798,216 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
 
           {pwError && (
             <p className="comedy-bubble text-sm text-[color:var(--rose)] animate-[fadeUp_.4s_ease_both]">{pwError}</p>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+          STAGE 3: THE PEACEFUL REST CHAMBER
+          Gentle animations & resting atmosphere for Manju
+          ══════════════════════════════════════════════════════════ */}
+      {stage === "rest" && (
+        <div className="mt-6 flex w-full max-w-lg flex-col items-center gap-5 animate-[fadeUp_.8s_ease_both]">
+          {/* Header badge */}
+          <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--champagne)]/40 bg-[rgba(244,223,180,0.1)] px-3.5 py-1 text-xs font-medium text-[color:var(--champagne)]">
+            <Sparkles size={14} className="text-[color:var(--champagne)] animate-spin" style={{ animationDuration: "6s" }} />
+            <span>Chamber of Rest · Peaceful Starlight</span>
+          </div>
+
+          <h2 className="font-script text-3xl sm:text-4xl text-[color:var(--champagne)] drop-shadow-[0_0_15px_rgba(244,223,180,0.6)]">
+            Take a Gentle Rest, Manju 🌙✨
+          </h2>
+
+          {/* Cozy animated resting scene illustration */}
+          <div className="ornate-card relative w-full overflow-hidden p-6 sm:p-8 text-center flex flex-col items-center justify-center">
+            {/* Ambient dreamy background aura */}
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(163,18,95,0.25)_0%,rgba(7,3,10,0.9)_75%)] pointer-events-none" />
+
+            {/* Resting SVG Artwork */}
+            <div className="relative z-10 my-2 flex items-center justify-center">
+              <svg
+                width="220"
+                height="160"
+                viewBox="0 0 220 160"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className="drop-shadow-[0_0_25px_rgba(255,126,182,0.4)]"
+              >
+                {/* Crescent Moon resting on a cloud */}
+                <defs>
+                  <linearGradient id="moonGrad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#fff8d8" />
+                    <stop offset="50%" stopColor="#ffd475" />
+                    <stop offset="100%" stopColor="#f4a261" />
+                  </linearGradient>
+                  <linearGradient id="cloudGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="rgba(255,255,255,0.4)" />
+                    <stop offset="100%" stopColor="rgba(163,18,95,0.25)" />
+                  </linearGradient>
+                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="4" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
+                </defs>
+
+                {/* Stars twinkling */}
+                <g className="animate-pulse" style={{ animationDuration: "2.5s" }}>
+                  <circle cx="28" cy="30" r="2" fill="#fef08a" />
+                  <polygon points="45,15 47,21 53,23 47,25 45,31 43,25 37,23 43,21" fill="#fef08a" />
+                  <circle cx="185" cy="25" r="2.5" fill="#f4dfb4" />
+                  <polygon points="175,45 176.5,49 181,50 176.5,51 175,55 173.5,51 169,50 173.5,49" fill="#f4dfb4" />
+                  <circle cx="105" cy="18" r="1.5" fill="#ffffff" />
+                </g>
+
+                {/* Crescent Moon with closed serene sleeping eye */}
+                <g className="animate-[bounce_6s_ease-in-out_infinite]">
+                  <path
+                    d="M 110,25 A 42,42 0 1 0 148,82 A 35,35 0 0 1 110,25 Z"
+                    fill="url(#moonGrad)"
+                    filter="url(#glow)"
+                  />
+                  {/* Sleeping closed eye arc */}
+                  <path
+                    d="M 102,52 Q 107,56 112,52"
+                    stroke="#5a0f2e"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    fill="none"
+                  />
+                  {/* Rose cheek blush */}
+                  <circle cx="107" cy="58" r="4" fill="#ff7eb6" opacity="0.6" />
+                  {/* Nightcap / star tassel */}
+                  <circle cx="147" cy="80" r="3" fill="#fef08a" className="animate-ping" style={{ animationDuration: "3s" }} />
+                </g>
+
+                {/* Cozy Cloud bed beneath the moon */}
+                <g className="animate-[pulse_4s_ease-in-out_infinite]">
+                  <path
+                    d="M 40,115 C 30,115 20,125 25,138 C 30,148 45,150 55,148 C 65,152 85,154 100,148 C 115,153 145,153 160,146 C 175,150 195,145 198,134 C 200,122 185,115 175,115 C 168,102 145,98 132,106 C 122,98 98,96 85,106 C 72,100 50,102 40,115 Z"
+                    fill="url(#cloudGrad)"
+                    stroke="rgba(244,223,180,0.4)"
+                    strokeWidth="1.5"
+                  />
+                </g>
+
+                {/* Floating Hearts drifting up from sleep */}
+                <g>
+                  <path
+                    d="M 65,85 C 65,82 62,80 59,80 C 56,80 54,82 54,85 C 54,90 65,97 65,97 C 65,97 76,90 76,85 C 76,82 74,80 71,80 C 68,80 65,82 65,85 Z"
+                    fill="#ff2e93"
+                    opacity="0.8"
+                    transform="scale(0.8) translate(15, -10)"
+                    className="animate-pulse"
+                  />
+                  <path
+                    d="M 155,75 C 155,72 152,70 149,70 C 146,70 144,72 144,75 C 144,80 155,87 155,87 C 155,87 166,80 166,75 C 166,72 164,70 161,70 C 158,70 155,72 155,75 Z"
+                    fill="#ff7eb6"
+                    opacity="0.9"
+                    transform="scale(0.7) translate(65, -5)"
+                    className="animate-pulse"
+                    style={{ animationDelay: "1s" }}
+                  />
+                </g>
+              </svg>
+            </div>
+
+            {/* Resting note */}
+            <div className="relative z-10 mt-3 max-w-sm space-y-2 text-center">
+              <p className="font-script text-xl sm:text-2xl text-[color:var(--rose)] leading-snug">
+                &ldquo;Romba kashtapattu astrolabe and 0423 secrets decode pannita... Ippo konjam relaxation yedu Manju!&rdquo;
+              </p>
+              <p className="text-xs sm:text-sm text-[color:var(--text-soft)] leading-relaxed">
+                Take a peaceful breath, relax your mind, and feel all my warmth around you. When you are ready to witness the grand midnight fireworks, proceed to the final celebration gate.
+              </p>
+            </div>
+          </div>
+
+          {/* Action button to proceed to final celebration password */}
+          <MagneticButton
+            onClick={() => {
+              sound.chime(950);
+              setStage("celebration");
+            }}
+            className="btn-museum mt-2 !px-7 !py-3 text-sm sm:text-base shadow-[0_0_25px_rgba(255,46,147,0.7)] animate-pulse"
+            ariaLabel="Proceed to Final Celebration Gate"
+          >
+            <span className="flex items-center gap-2">
+              <KeyRound size={18} aria-hidden="true" />
+              <span>Proceed to Celebration Gate 🔐✨</span>
+            </span>
+          </MagneticButton>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+          STAGE 4: THE GRAND CELEBRATION PASSWORD GATE ("Pmraanejeu")
+          ══════════════════════════════════════════════════════════ */}
+      {stage === "celebration" && (
+        <div className="mt-8 flex w-full max-w-md flex-col items-center gap-5 animate-[fadeUp_.8s_ease_both]">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full border border-[color:var(--champagne)] bg-[rgba(244,223,180,0.2)] shadow-[0_0_30px_rgba(244,223,180,0.6)] animate-pulse">
+            <Sparkles size={32} className="text-[color:var(--champagne)]" />
+          </div>
+
+          <p className="font-script text-3xl sm:text-4xl text-[color:var(--champagne)] drop-shadow-[0_0_12px_rgba(244,223,180,0.6)]">
+            The Grand Celebration Gate
+          </p>
+
+          <p className="max-w-md text-xs sm:text-sm text-[color:var(--text-soft)]">
+            Enter the sacred final password uniting our names to ignite the midnight sky with our fireworks celebration!
+          </p>
+
+          {/* Romantic Clue Drawer for Celebration Password */}
+          <details className="w-full max-w-md rounded-xl border border-[color:var(--champagne)]/35 bg-[rgba(18,6,26,0.7)] p-3 text-center backdrop-blur-md transition-all group">
+            <summary className="flex cursor-pointer items-center justify-between text-xs font-semibold text-[color:var(--champagne)]">
+              <span className="flex items-center gap-1.5">
+                <Heart size={13} className="text-[color:var(--rose)] animate-pulse" fill="currentColor" />
+                <span>Need a clue for the celebration password? 🗝️</span>
+              </span>
+              <span className="text-[10px] uppercase tracking-wider text-[color:var(--brass)] group-open:hidden">
+                Tap to Reveal
+              </span>
+            </summary>
+            <div className="mt-2.5 border-t border-white/10 pt-2 text-xs text-[color:var(--champagne)]/95 leading-relaxed text-left space-y-1">
+              <p className="font-script text-base text-[color:var(--rose)]">
+                &ldquo;The sacred password uniting Prajeeth and Manju into celebration…&rdquo;
+              </p>
+              <p className="text-[11px] text-[color:var(--text-soft)]">
+                The magical code to enter: <strong className="text-[color:var(--champagne)] font-mono">Pmraanejeu</strong> 💖
+              </p>
+            </div>
+          </details>
+
+          {/* Celebration Password Entry Form */}
+          <form
+            onSubmit={submitCelebration}
+            key={celebShake}
+            className={`w-full ${celebShake ? "shake" : ""}`}
+            aria-label="Grand Celebration Password Gate"
+          >
+            <div className="flex gap-2">
+              <input
+                ref={celebInputRef}
+                type="text"
+                value={celebInput}
+                onChange={(e) => setCelebInput(e.target.value)}
+                placeholder="Pmraanejeu"
+                maxLength={20}
+                autoComplete="off"
+                className="h-12 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center text-lg sm:text-xl font-bold tracking-[0.2em] text-[color:var(--champagne)] placeholder:text-white/20 focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50"
+              />
+              <MagneticButton type="submit" className="btn-museum !px-5" ariaLabel="Ignite Fireworks Celebration">
+                <span className="flex items-center gap-1.5">
+                  <Unlock size={16} aria-hidden="true" />
+                  <span>Celebrate!</span>
+                </span>
+              </MagneticButton>
+            </div>
+          </form>
+
+          {celebError && (
+            <p className="comedy-bubble text-sm text-[color:var(--rose)] animate-[fadeUp_.4s_ease_both]">
+              {celebError}
+            </p>
           )}
         </div>
       )}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { FastForward, RotateCcw, ScrollText } from "lucide-react";
+import { FastForward, Heart, Key, Lock, RotateCcw, ScrollText } from "lucide-react";
 import { love } from "@/lib/love-config";
 import { fx } from "@/lib/fx";
 import { sound } from "@/lib/sound";
@@ -31,6 +31,10 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
   );
   const [stage, setStage] = useState<Stage>("sealed");
   const [typed, setTyped] = useState(0);
+  const [unlocked, setUnlocked] = useState(false);
+  const [pwInput, setPwInput] = useState("");
+  const [pwError, setPwError] = useState("");
+  const [pwShake, setPwShake] = useState(0);
   const sealRef = useRef<HTMLDivElement>(null);
   const typeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -38,6 +42,27 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
   const typing = stage === "reading" && typed < fullLength;
   // "done" is derived: the typewriter finished on its own or was skipped
   const isDone = stage === "done" || (stage === "reading" && typed >= fullLength);
+
+  // Password submission for "mvp"
+  const checkLetterPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = pwInput.trim().toLowerCase();
+    if (clean === "mvp") {
+      sound.chime(1000);
+      sound.popper();
+      if (!reduced) {
+        fx.confettiBurst(window.innerWidth / 2, window.innerHeight * 0.45, 90);
+        fx.sealBurst(window.innerWidth / 2, window.innerHeight * 0.45);
+      }
+      setUnlocked(true);
+      setPwError("");
+    } else {
+      sound.pop();
+      setPwError("Aiyayo! Thappana password! Enoda MVP yaaru Manju? 😉");
+      setPwShake((s) => s + 1);
+      setPwInput("");
+    }
+  };
 
   // typewriter with a soft pen-scratch rhythm (varied cadence)
   useEffect(() => {
@@ -51,12 +76,17 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
   }, [stage, typed, fullLength, reduced]);
 
   const openEnvelope = useCallback(() => {
+    if (!unlocked) {
+      setPwShake((s) => s + 1);
+      sound.pop();
+      return;
+    }
     if (stage !== "sealed") return;
     sound.pop();
     const rect = sealRef.current?.getBoundingClientRect();
     if (rect) fx.sealBurst(rect.left + rect.width / 2, rect.top + rect.height / 2);
     setStage("open");
-  }, [stage]);
+  }, [unlocked, stage]);
 
   const startReading = () => {
     sound.chime(760);
@@ -139,15 +169,70 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
         </div>
 
         {stage === "sealed" && (
-          <p className="mt-4 text-xs tracking-[0.3em] uppercase text-[color:var(--brass)]">
-            tap the seal to break the wax
+          <p className="mt-4 text-xs tracking-[0.25em] uppercase text-[color:var(--brass)] flex items-center justify-center gap-1.5">
+            {!unlocked ? (
+              <>
+                <Lock size={12} className="text-[color:var(--rose)] animate-pulse" />
+                <span className="text-[color:var(--rose)]">Enter password below to unseal</span>
+              </>
+            ) : (
+              <span>tap the seal to break the wax</span>
+            )}
           </p>
         )}
       </div>
 
       {/* actions per stage */}
       <div className="mt-8 flex flex-col items-center gap-4" aria-live="polite">
-        {stage === "open" && (
+        {!unlocked && (
+          <div className="flex w-full max-w-sm flex-col items-center gap-3 animate-[fadeUp_.8s_ease_both]">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--champagne)]">
+              <Lock size={15} className="text-[color:var(--rose)] animate-pulse" />
+              <span>Password Required to Unseal Letter</span>
+            </div>
+
+            <form onSubmit={checkLetterPassword} className={`w-full ${pwShake ? "shake" : ""}`}>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={pwInput}
+                  onChange={(e) => setPwInput(e.target.value)}
+                  placeholder="Enter Password"
+                  maxLength={10}
+                  className="h-11 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center font-bold tracking-[0.25em] text-[color:var(--champagne)] uppercase placeholder:text-white/20 focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50"
+                />
+                <button type="submit" className="btn-museum !px-5 text-xs font-bold">
+                  <span className="flex items-center gap-1.5">
+                    <Key size={14} />
+                    <span>Unseal</span>
+                  </span>
+                </button>
+              </div>
+            </form>
+
+            {pwError && (
+              <p className="comedy-bubble text-xs text-[color:var(--rose)] animate-[fadeUp_.3s_ease_both]">
+                {pwError}
+              </p>
+            )}
+
+            {/* Clue Drawer for MVP */}
+            <details className="mt-1 w-full rounded-xl border border-[color:var(--brass)]/30 bg-[rgba(18,6,26,0.6)] p-2.5 text-xs text-[color:var(--text-soft)] group">
+              <summary className="flex cursor-pointer items-center justify-between font-semibold text-[color:var(--champagne)]">
+                <span className="flex items-center gap-1.5">
+                  <Heart size={12} className="text-[color:var(--rose)]" fill="currentColor" />
+                  <span>Need a clue for the letter password? 🗝️</span>
+                </span>
+                <span className="text-[10px] text-[color:var(--brass)] group-open:hidden">Tap for Clue</span>
+              </summary>
+              <div className="mt-2 border-t border-white/10 pt-1.5 text-left text-[11px] text-[color:var(--champagne)]/90">
+                &ldquo;Who is the Most Valuable Person in my entire life? 💖&rdquo;
+              </div>
+            </details>
+          </div>
+        )}
+
+        {unlocked && stage === "open" && (
           <button onClick={startReading} className="btn-museum animate-[fadeUp_.6s_ease_both]">
             <ScrollText size={18} aria-hidden="true" />
             Unfold &amp; Read the Letter
