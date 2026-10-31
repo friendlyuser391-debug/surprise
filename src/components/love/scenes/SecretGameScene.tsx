@@ -972,7 +972,7 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                 &ldquo;The sacred password uniting Prajeeth and Manju into celebration…&rdquo;
               </p>
               <p className="text-[11px] text-[color:var(--text-soft)]">
-                The magical code to enter: <strong className="text-[color:var(--champagne)] font-mono">Pmraanejeu</strong> 💖
+                A secret code created by intertwining both of our names together 🗝️💖
               </p>
             </div>
           </details>
@@ -990,7 +990,7 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                 type="text"
                 value={celebInput}
                 onChange={(e) => setCelebInput(e.target.value)}
-                placeholder="Pmraanejeu"
+                placeholder="••••••••••"
                 maxLength={20}
                 autoComplete="off"
                 className="h-12 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center text-lg sm:text-xl font-bold tracking-[0.2em] text-[color:var(--champagne)] placeholder:text-white/20 focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50"
