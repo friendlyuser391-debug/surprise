@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { FastForward, Heart, Key, Lock, RotateCcw, ScrollText } from "lucide-react";
-import { love } from "@/lib/love-config";
+import { isPasswordAutoVisible, love } from "@/lib/love-config";
 import { fx } from "@/lib/fx";
 import { sound } from "@/lib/sound";
 import { useSettings } from "@/lib/store";
@@ -39,7 +39,7 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
   const sealRef = useRef<HTMLDivElement>(null);
   const typeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 3 chances with 2 minutes cooldown
+  // 3 chances with 2 minutes cooldown (resets to 3 on refresh)
   const gate = usePasswordGate("fmw.gate.letter");
 
   const fullLength = FULL_LETTER.length;
@@ -52,7 +52,7 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
     e.preventDefault();
     if (gate.isLocked) return;
     const clean = pwInput.trim().toLowerCase();
-    if (clean === "mvp") {
+    if (clean === "mvp" || isPasswordAutoVisible()) {
       gate.recordSuccess();
       sound.chime(1000);
       sound.popper();

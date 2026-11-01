@@ -6,19 +6,19 @@ const MAX_CHANCES = 3;
 const LOCK_MS = 2 * 60_000; // 2 minutes lock when 0 chances left
 const REFILL_MS = 2 * 60_000; // 1 chance refilled every 2 minutes
 
-interface StoredGate {
+interface GateState {
   chances: number;
   lockUntil: number; // epoch ms
   refillAt: number | null; // epoch ms
 }
 
-const FRESH: StoredGate = {
+const FRESH: GateState = {
   chances: MAX_CHANCES,
   lockUntil: 0,
   refillAt: null,
 };
 
-function normalize(g: StoredGate, now: number): StoredGate {
+function normalize(g: GateState, now: number): GateState {
   let chances = Math.min(MAX_CHANCES, Math.max(0, Math.floor(g.chances) || 0));
   let lockUntil = Math.max(0, Math.floor(g.lockUntil) || 0);
   let refillAt = g.refillAt != null && g.refillAt > 0 ? g.refillAt : null;
@@ -51,42 +51,36 @@ function normalize(g: StoredGate, now: number): StoredGate {
   return { chances, lockUntil, refillAt };
 }
 
-export function usePasswordGate(storageKey: string) {
-  const [gate, setGate] = useState<StoredGate>(() => {
-    if (typeof window === "undefined") return FRESH;
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return FRESH;
-      return normalize(JSON.parse(raw), Date.now());
-    } catch {
-      return FRESH;
-    }
-  });
+/**
+ * In-session password gate:
+ * - 3 chances.
+ * - 2-minute cooldown lock when out of chances.
+ * - Refreshing the page ALWAYS resets back to 3 fresh chances (no stale reduced chances).
+ * - Cleans up any legacy localStorage data on mount.
+ */
+export function usePasswordGate(storageKey?: string) {
+  // Always initialize fresh so page refresh resets to 3 chances as requested
+  const [gate, setGate] = useState<GateState>(FRESH);
+  const [now, setNow] = useState<number>(() => Date.now());
 
-  const [now, setNow] = useState<number>(Date.now());
+  // Clear any legacy persisted lock from previous versions
+  useEffect(() => {
+    if (storageKey && typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(storageKey);
+      } catch {}
+    }
+  }, [storageKey]);
 
   // Tick every 500ms for countdown and auto-refill
   useEffect(() => {
     const id = setInterval(() => {
       const currentNow = Date.now();
       setNow(currentNow);
-      setGate((prev) => {
-        const next = normalize(prev, currentNow);
-        if (
-          next.chances !== prev.chances ||
-          next.lockUntil !== prev.lockUntil ||
-          next.refillAt !== prev.refillAt
-        ) {
-          try {
-            window.localStorage.setItem(storageKey, JSON.stringify(next));
-          } catch {}
-          return next;
-        }
-        return prev;
-      });
+      setGate((prev) => normalize(prev, currentNow));
     }, 500);
     return () => clearInterval(id);
-  }, [storageKey]);
+  }, []);
 
   const isLocked = gate.chances <= 0 && gate.lockUntil > now;
   const lockLeftMs = Math.max(0, gate.lockUntil - now);
@@ -102,7 +96,7 @@ export function usePasswordGate(storageKey: string) {
     setGate((prev) => {
       const currentNow = Date.now();
       const nextChances = Math.max(0, prev.chances - 1);
-      let next: StoredGate;
+      let next: GateState;
       if (nextChances <= 0) {
         next = {
           chances: 0,
@@ -116,19 +110,13 @@ export function usePasswordGate(storageKey: string) {
           refillAt: prev.refillAt ?? currentNow + REFILL_MS,
         };
       }
-      try {
-        window.localStorage.setItem(storageKey, JSON.stringify(next));
-      } catch {}
       return next;
     });
-  }, [storageKey]);
+  }, []);
 
   const recordSuccess = useCallback(() => {
     setGate(FRESH);
-    try {
-      window.localStorage.removeItem(storageKey);
-    } catch {}
-  }, [storageKey]);
+  }, []);
 
   return {
     chances: gate.chances,
@@ -142,4 +130,3 @@ export function usePasswordGate(storageKey: string) {
     recordSuccess,
   };
 }
-

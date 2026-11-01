@@ -27,9 +27,9 @@ export const love = {
   },
 
   /**
-   * First door — password for day, hour, minute removed as requested.
+   * First door — accepts live countdown day, hour, minute or current date/time.
    */
-  timeCodeEnabled: false,
+  timeCodeEnabled: true,
   fixedCode: "0423", // fallback code if gate is active
 
   // Real history dates (seeded into the history timeline)

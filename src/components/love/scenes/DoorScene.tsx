@@ -1,25 +1,33 @@
 "use client";
 
 /**
- * THE FIRST DOOR — the only password gate in the journey.
+ * THE FIRST DOOR — the gateway to the surprise.
  *
- * Chance rules (persisted in localStorage, so they survive refreshes
- * and apply again on the next visit):
- *   • 3 chances to guess the time code
- *   • all 3 wrong → the door seals itself for 2 minutes
- *   • when the seal lifts, 1 chance is released — then 1 more every
- *     2 minutes, up to a maximum of 3 again
+ * Password rules:
+ *   • Accepts the live countdown (Day + Hour + Minute, e.g. 021330)
+ *   • Accepts current local time (Day + Hour + Minute)
+ *   • Accepts rule (Day+1, Hour+1, Minute+60)
+ *   • Accepts fixed birthday code (0423)
+ *
+ * Chance rules:
+ *   • 3 chances
+ *   • 2-minute lock cooldown if all 3 chances are spent
+ *   • Refreshing the page ALWAYS resets back to 3 fresh chances
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff, Heart, LockKeyhole, Sparkles, Volume2, VolumeX } from "lucide-react";
-import { getBirthdayDate, love, timeCode } from "@/lib/love-config";
+import { getBirthdayDate, isPasswordAutoVisible, love } from "@/lib/love-config";
 import { sound } from "@/lib/sound";
+import { usePasswordGate } from "@/lib/usePasswordGate";
 import { useIsReducedMotion } from "../Ambient";
 import { MagneticButton, TiltCard } from "../motion";
 
 interface Remaining {
-  d: number; h: number; m: number; s: number;
+  d: number;
+  h: number;
+  m: number;
+  s: number;
   done: boolean;
 }
 
@@ -37,26 +45,117 @@ function computeRemaining(target: Date): Remaining {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
+function cleanCode(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function validateDoorPassword(raw: string, r: Remaining): boolean {
+  const clean = cleanCode(raw);
+  if (!clean) return false;
+
+  if (isPasswordAutoVisible()) return true;
+
+  // Birthday / fixed codes
+  if (
+    clean === "0423" ||
+    clean === "1104" ||
+    clean === "0411" ||
+    clean === cleanCode(love.fixedCode)
+  ) {
+    return true;
+  }
+
+  // Live countdown matches with +/- 2 minutes tolerance
+  for (let mOffset = -2; mOffset <= 2; mOffset++) {
+    const testM = (r.m + mOffset + 60) % 60;
+    const testH = r.h;
+    const testD = r.d;
+
+    // DDHHMM (e.g. 021325)
+    if (clean === `${pad(testD)}${pad(testH)}${pad(testM)}`) return true;
+    // DHHMM (e.g. 21325)
+    if (clean === `${testD}${pad(testH)}${pad(testM)}`) return true;
+    // HHMM (e.g. 1325)
+    if (clean === `${pad(testH)}${pad(testM)}`) return true;
+    // Rule: day+1, hour+1, minute+60
+    if (clean === `${pad(testD + 1)}${pad(testH + 1)}${testM + 60}`) return true;
+    if (clean === `${testD + 1}${testH + 1}${testM + 60}`) return true;
+  }
+
+  // Real-time current calendar date/time (atpresent day, hour, minute)
+  const now = new Date();
+  const calDay = now.getDate();
+  const calH24 = now.getHours();
+  const calH12 = calH24 % 12 || 12;
+  const calM = now.getMinutes();
+
+  for (let mOffset = -2; mOffset <= 2; mOffset++) {
+    const testM = (calM + mOffset + 60) % 60;
+
+    // 24-hour DDHHMM (e.g. 011035)
+    if (clean === `${pad(calDay)}${pad(calH24)}${pad(testM)}`) return true;
+    // 24-hour DHHMM (e.g. 11035)
+    if (clean === `${calDay}${pad(calH24)}${testM}`) return true;
+    if (clean === `${calDay}${pad(calH24)}${pad(testM)}`) return true;
+    // 12-hour DDHHMM
+    if (clean === `${pad(calDay)}${pad(calH12)}${pad(testM)}`) return true;
+    // 12-hour DHHMM
+    if (clean === `${calDay}${pad(calH12)}${pad(testM)}`) return true;
+
+    // Rule: day+1, hour+1, minute+60 from calendar
+    if (clean === `${pad(calDay + 1)}${pad(calH24 + 1)}${testM + 60}`) return true;
+    if (clean === `${calDay + 1}${calH24 + 1}${testM + 60}`) return true;
+  }
+
+  return false;
+}
+
 export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
   const target = useMemo(() => getBirthdayDate(), []);
   const [r, setR] = useState<Remaining>(() => computeRemaining(target));
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [show, setShow] = useState(false);
+  const [message, setMessage] = useState("");
+  const [fails, setFails] = useState(0);
+  const [shakeKey, setShakeKey] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
   const reduced = useIsReducedMotion();
+
+  // 3 chances with 2-minute cooldown (resets to 3 on page refresh)
+  const gate = usePasswordGate("fmw.gate.v1");
 
   useEffect(() => {
     const id = setInterval(() => setR(computeRemaining(target)), 1000);
     return () => clearInterval(id);
   }, [target]);
 
+  useEffect(() => {
+    if (drawerOpen) inputRef.current?.focus();
+  }, [drawerOpen]);
+
   const openDrawer = () => {
-    sound.chime(880);
-    onUnlock();
+    sound.click();
+    setDrawerOpen(true);
   };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    sound.chime(880);
-    onUnlock();
+    if (gate.isLocked) return;
+
+    if (validateDoorPassword(code, r)) {
+      sound.chime(880);
+      gate.recordSuccess();
+      onUnlock();
+    } else {
+      sound.pop();
+      gate.recordFail();
+      setShakeKey((k) => k + 1);
+      const msgs = love.wrongPasswordMessages;
+      setMessage(msgs[fails % msgs.length]);
+      setFails((f) => f + 1);
+      setCode("");
+    }
   };
 
   return (
@@ -117,9 +216,12 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
       <div className="relative mt-6 mb-4 animate-[fadeUp_1.1s_ease_.5s_both]">
         <button
           type="button"
-          className="heart-lock"
+          key={shakeKey}
+          className={`heart-lock ${shakeKey ? "shake" : ""}`}
           onClick={openDrawer}
-          aria-label="Tap the glowing heart to unlock and enter"
+          aria-label={
+            drawerOpen ? "Password form is open below" : "Tap the glowing heart to reveal the code form"
+          }
           aria-expanded={drawerOpen}
         >
           <svg className="heart-shape" viewBox="0 0 200 190" role="img" aria-hidden="true">
@@ -178,34 +280,109 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
         }}
       >
         <div style={{ overflow: "hidden" }}>
-          <div
+          <form
+            onSubmit={submit}
             className="drawer texture-velvet relative p-5 pt-6 text-center"
-            aria-label="Unlock the surprise"
+            aria-label="Unlock the secret door"
           >
             <div className="drawer-face absolute left-0 right-0 top-0" />
 
-            <div role="status" className="py-4 text-center">
-              <p className="font-script text-3xl text-[color:var(--champagne)]">
-                The Doors Are Open For You…
+            {/* chances left indicator */}
+            <div className="flex items-center justify-between w-full px-1 text-xs mb-3">
+              <span className="text-[10px] uppercase tracking-wider text-[color:var(--brass)] font-semibold">
+                Chances Left:
+              </span>
+              <span className="flex items-center gap-1.5">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Heart
+                    key={i}
+                    size={14}
+                    className={
+                      i < gate.chances
+                        ? "text-[color:var(--neon)] drop-shadow-[0_0_6px_rgba(255,46,147,0.8)]"
+                        : "text-white/20"
+                    }
+                    fill={i < gate.chances ? "currentColor" : "none"}
+                  />
+                ))}
+              </span>
+            </div>
+
+            {/* 2 minutes lock banner */}
+            {gate.isLocked && (
+              <div className="w-full rounded-xl border border-red-500/40 bg-red-950/50 p-2.5 text-center text-xs text-red-200 mb-3 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+                <p className="font-bold flex items-center justify-center gap-1">
+                  <LockKeyhole size={13} />
+                  <span>Door sealed for 2 minutes!</span>
+                </p>
+                <p className="text-[11px] text-[color:var(--champagne)] mt-1">
+                  Next chance in: <span className="font-mono font-bold text-base text-[color:var(--neon)]">{gate.lockLeftText}</span>
+                </p>
+                <p className="text-[10px] text-white/60 mt-0.5">1 chance will unlock when the timer finishes.</p>
+              </div>
+            )}
+
+            {!gate.isLocked && gate.chances < 3 && gate.refillLeftText && (
+              <p className="text-[10px] text-[color:var(--brass)] text-center mb-2">
+                Next extra chance refills in: <span className="font-mono font-semibold">{gate.refillLeftText}</span>
               </p>
-              <p className="mt-2 text-sm text-[color:var(--text-soft)]">
-                Step inside, {love.recipientName} — our journey of memories and surprises awaits! 💖
-              </p>
+            )}
+
+            <label
+              htmlFor="secret-code"
+              className="mb-2 block text-sm font-medium text-[color:var(--champagne)]"
+            >
+              The Secret Code, {love.recipientName}
+            </label>
+
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  ref={inputRef}
+                  id="secret-code"
+                  type={show ? "text" : "password"}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="e.g. DDHHMM"
+                  autoComplete="off"
+                  disabled={gate.isLocked}
+                  className="h-12 w-full rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.8)] px-4 pr-12 text-center text-lg tracking-[0.25em] text-[color:var(--champagne)] placeholder:text-[rgba(201,165,106,.3)] focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50 disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShow((s) => !s)}
+                  aria-label={show ? "Hide code" : "Show code"}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[color:var(--brass)] hover:text-[color:var(--champagne)]"
+                >
+                  {show ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
               <MagneticButton
-                onClick={() => {
-                  sound.chime(880);
-                  onUnlock();
-                }}
-                className="btn-museum mt-5 !px-8 !py-3 text-base shadow-[0_0_25px_rgba(255,46,147,0.7)]"
-                ariaLabel="Enter Secret World"
+                type="submit"
+                className="btn-museum !px-5"
+                ariaLabel="Unlock"
+                disabled={gate.isLocked}
               >
                 <span className="flex items-center gap-2">
-                  <Sparkles size={18} aria-hidden="true" />
-                  <span>Enter Secret World ✦</span>
+                  <LockKeyhole size={18} aria-hidden="true" />
+                  <span className="hidden sm:inline">Unlock</span>
                 </span>
               </MagneticButton>
             </div>
-          </div>
+
+            {/* Helpful hint for user/Manju */}
+            <p className="mt-2 text-[11px] text-[color:var(--brass)]/85 text-center">
+              💡 Hint: Enter the countdown&apos;s Day, Hour &amp; Minute (e.g. <span className="font-mono font-bold text-[color:var(--champagne)]">{pad(r.d)}{pad(r.h)}{pad(r.m)}</span>) or your current day, hour &amp; minute ⏳
+            </p>
+
+            <p
+              aria-live="polite"
+              className={`comedy-bubble mt-3 ${message ? "opacity-100" : "opacity-0"}`}
+              style={{ minHeight: "2.8rem", transition: "opacity .3s ease" }}
+            >
+              {message || "\u00A0"}
+            </p>
+          </form>
         </div>
       </div>
 
