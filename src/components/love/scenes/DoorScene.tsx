@@ -18,86 +18,6 @@ import { sound } from "@/lib/sound";
 import { useIsReducedMotion } from "../Ambient";
 import { MagneticButton, TiltCard } from "../motion";
 
-const MAX_CHANCES = love.gate.chances;
-const LOCK_MS = love.gate.lockMs;
-const REFILL_MS = love.gate.refillMs;
-const GATE_KEY = "fmw.gate.v1";
-
-interface GateState {
-  chances: number; // tries available right now (0..MAX_CHANCES)
-  lockUntil: number; // epoch ms — while in the future and chances = 0, door is sealed
-  refillAt: number | null; // epoch ms — when the next extra chance releases
-}
-
-const FRESH_GATE: GateState = { chances: MAX_CHANCES, lockUntil: 0, refillAt: null };
-
-/** Bring any stored/raw gate state up to date for `now`. Returns the SAME object if nothing changed. */
-function normalizeGate(g: GateState, now: number): GateState {
-  let chances = Math.min(MAX_CHANCES, Math.max(0, Math.floor(g.chances) || 0));
-  let lockUntil = Math.max(0, Math.floor(g.lockUntil) || 0);
-  let refillAt = g.refillAt != null && g.refillAt > 0 ? g.refillAt : null;
-
-  if (chances >= MAX_CHANCES) {
-    chances = MAX_CHANCES;
-    lockUntil = 0;
-    refillAt = null;
-  } else {
-    if (chances === 0 && !lockUntil && !refillAt) {
-      // corrupt/legacy state — behave as if a seal just lifted
-      refillAt = now;
-    }
-    // drip: one chance releases every REFILL_MS
-    while (refillAt && refillAt <= now && chances < MAX_CHANCES) {
-      chances += 1;
-      refillAt += REFILL_MS;
-    }
-    if (chances >= MAX_CHANCES) {
-      chances = MAX_CHANCES;
-      lockUntil = 0;
-      refillAt = null;
-    } else {
-      // safety net: seal already over but no release schedule
-      if (chances === 0 && lockUntil && lockUntil <= now && !refillAt) {
-        chances = 1;
-        refillAt = lockUntil + REFILL_MS;
-        lockUntil = 0;
-      }
-      if (chances > 0) lockUntil = 0;
-    }
-  }
-
-  if (chances === g.chances && lockUntil === g.lockUntil && refillAt === g.refillAt) return g;
-  return { chances, lockUntil, refillAt };
-}
-
-function loadGate(): GateState {
-  if (typeof window === "undefined") return FRESH_GATE;
-  try {
-    const raw = window.localStorage.getItem(GATE_KEY);
-    if (!raw) return FRESH_GATE;
-    const p = JSON.parse(raw) as Partial<GateState>;
-    return normalizeGate(
-      { chances: Number(p.chances) || 0, lockUntil: Number(p.lockUntil) || 0, refillAt: Number(p.refillAt) || null },
-      Date.now()
-    );
-  } catch {
-    return FRESH_GATE;
-  }
-}
-
-function saveGate(g: GateState) {
-  try {
-    window.localStorage.setItem(GATE_KEY, JSON.stringify(g));
-  } catch {
-    /* private mode — gate simply resets next visit */
-  }
-}
-
-const mmss = (ms: number) => {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-};
-
 interface Remaining {
   d: number; h: number; m: number; s: number;
   done: boolean;
@@ -121,99 +41,22 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
   const target = useMemo(() => getBirthdayDate(), []);
   const [r, setR] = useState<Remaining>(() => computeRemaining(target));
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [code, setCode] = useState("");
-  const [show, setShow] = useState(false);
-  const [message, setMessage] = useState("");
-  const [fails, setFails] = useState(0);
-  const [shakeKey, setShakeKey] = useState(0);
-  const [gate, setGate] = useState<GateState>(FRESH_GATE);
-  const [now, setNow] = useState(0); // 0 until mounted — avoids SSR/hydration mismatch
-  const inputRef = useRef<HTMLInputElement>(null);
   const reduced = useIsReducedMotion();
-
-  // restore the persisted gate, then keep it ticking (catch-up on load → save straight away)
-  useEffect(() => {
-    const restored = loadGate();
-    setGate(restored);
-    saveGate(restored);
-    setNow(Date.now());
-    const id = setInterval(() => {
-      setNow(Date.now());
-      setGate((g) => {
-        const next = normalizeGate(g, Date.now());
-        if (next !== g) saveGate(next);
-        return next;
-      });
-    }, 500);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     const id = setInterval(() => setR(computeRemaining(target)), 1000);
     return () => clearInterval(id);
   }, [target]);
 
-  useEffect(() => {
-    if (drawerOpen) inputRef.current?.focus();
-  }, [drawerOpen]);
-
-  const expected = love.timeCodeEnabled ? timeCode(r.d, r.h, r.m) : love.fixedCode;
-
-  const locked = gate.chances <= 0 && gate.lockUntil > now;
-  const lockLeft = Math.max(0, gate.lockUntil - now);
-  const refillLeft = gate.refillAt ? Math.max(0, gate.refillAt - now) : null;
-
-  const updateGate = useCallback((next: GateState) => {
-    saveGate(next);
-    setGate(next);
-  }, []);
-
   const openDrawer = () => {
-    sound.click();
-    setDrawerOpen(true);
-  };
-
-  const fail = () => {
-    const msgs = love.wrongPasswordMessages;
-    setMessage(msgs[Math.min(fails, msgs.length - 1)]);
-    setFails((f) => f + 1);
-    setShakeKey((k) => k + 1);
-    sound.pop();
-    const t = Date.now();
-    const chances = gate.chances - 1;
-    updateGate(
-      chances > 0
-        ? { chances, lockUntil: 0, refillAt: null }
-        : { chances: 0, lockUntil: t + LOCK_MS, refillAt: t + LOCK_MS } // seal lifts → 1 chance, then +1 every 2 min
-    );
+    sound.chime(880);
+    onUnlock();
   };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (locked || expected === null) return;
-    const clean = code.replace(/\s+/g, "").trim();
-
-    // User requested rule: now day count + 1, hour + 1, minutes + 60
-    const ruleUnpadded = `${r.d + 1}${r.h + 1}${r.m + 60}`;
-    const ruleAltHours = `${r.h + 1}${r.m + 60}`;
-    const rawCountdown = `${pad(r.d)}${pad(r.h)}${pad(r.m)}`;
-
-    const isMatch =
-      clean === expected ||
-      clean === expected.replace(/\s+/g, "") ||
-      clean === ruleUnpadded ||
-      clean === ruleAltHours ||
-      clean === rawCountdown ||
-      clean === love.fixedCode;
-
-    if (isMatch) {
-      sound.chime(880);
-      updateGate(FRESH_GATE); // success — a fresh set of chances next visit too
-      onUnlock();
-    } else {
-      fail();
-      setCode("");
-    }
+    sound.chime(880);
+    onUnlock();
   };
 
   return (
@@ -274,12 +117,9 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
       <div className="relative mt-6 mb-4 animate-[fadeUp_1.1s_ease_.5s_both]">
         <button
           type="button"
-          key={shakeKey}
-          className={`heart-lock ${shakeKey ? "shake" : ""}`}
+          className="heart-lock"
           onClick={openDrawer}
-          aria-label={
-            drawerOpen ? "Password form is open below" : "Tap the glowing heart to reveal the code form"
-          }
+          aria-label="Tap the glowing heart to unlock and enter"
           aria-expanded={drawerOpen}
         >
           <svg className="heart-shape" viewBox="0 0 200 190" role="img" aria-hidden="true">
@@ -338,150 +178,34 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
         }}
       >
         <div style={{ overflow: "hidden" }}>
-          <form
-            onSubmit={submit}
-            className="drawer texture-velvet relative p-5 pt-6 text-left"
+          <div
+            className="drawer texture-velvet relative p-5 pt-6 text-center"
             aria-label="Unlock the surprise"
           >
             <div className="drawer-face absolute left-0 right-0 top-0" />
 
-            {/* the three chances — always visible, always honest */}
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-[0.3em] text-[color:var(--brass)]">
-                chances left
-              </span>
-              <span className="flex items-center gap-1.5" aria-label={`${gate.chances} of ${MAX_CHANCES} chances left`}>
-                {Array.from({ length: MAX_CHANCES }).map((_, i) => (
-                  <Heart
-                    key={i}
-                    size={14}
-                    aria-hidden="true"
-                    className={
-                      i < gate.chances
-                        ? "text-[#ff2e93] drop-shadow-[0_0_5px_rgba(255,46,147,.8)]"
-                        : "text-[rgba(201,165,106,.28)]"
-                    }
-                    fill={i < gate.chances ? "currentColor" : "none"}
-                    style={i < gate.chances ? { animation: "heart-breathe 2.6s ease-in-out infinite" } : undefined}
-                  />
-                ))}
-              </span>
-            </div>
-
-            {expected === null ? (
-              <div role="status" className="py-4 text-center">
-                <p className="font-script text-2xl text-[color:var(--champagne)]">
-                  The final minute…
-                </p>
-                <p className="mt-1 text-sm text-[color:var(--text-soft)]">
-                  No code to type — just hold on, {love.recipientName}. The door unlocks
-                  itself when the countdown completes.
-                </p>
-              </div>
-            ) : (
-              <>
-                {/* Clue Drawer for Countdown Password Rule */}
-                <details className="mb-4 w-full rounded-xl border border-[color:var(--rose)]/35 bg-[rgba(18,6,26,0.7)] p-3 text-center backdrop-blur-md transition-all group">
-                  <summary className="flex cursor-pointer items-center justify-between text-xs font-semibold text-[color:var(--champagne)]">
-                    <span className="flex items-center gap-1.5">
-                      <Heart size={13} className="text-[color:var(--rose)] animate-pulse" fill="currentColor" />
-                      <span>Need the rule for the secret code? 🗝️</span>
-                    </span>
-                    <span className="text-[10px] uppercase tracking-wider text-[color:var(--brass)] group-open:hidden">
-                      Tap for Rule
-                    </span>
-                  </summary>
-                  <div className="mt-2.5 border-t border-white/10 pt-2 text-xs text-[color:var(--champagne)]/95 leading-relaxed text-left space-y-1.5">
-                    <p className="font-script text-base text-[color:var(--rose)]">
-                      &ldquo;Look at the countdown clock above…&rdquo;
-                    </p>
-                    <p className="text-[10px] text-[color:var(--brass)]">
-                      Just prank !!! Ippo Kandupudi Pakalam
-                    </p>
-                  </div>
-                </details>
-
-                <label
-                  htmlFor="secret-code"
-                  className="mb-3 block text-sm font-medium text-[color:var(--champagne)]"
-                >
-                  The secret code, {love.recipientName}
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      ref={inputRef}
-                      id="secret-code"
-                      type={show ? "text" : "password"}
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      placeholder="••••••"
-                      autoComplete="off"
-                      inputMode="numeric"
-                      disabled={locked}
-                      className="h-12 w-full rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.8)] px-4 pr-12 text-lg tracking-[0.3em] text-[color:var(--champagne)] placeholder:text-[rgba(201,165,106,.4)] focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50 disabled:opacity-50"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShow((s) => !s)}
-                      aria-label={show ? "Hide code" : "Show code"}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[color:var(--brass)] hover:text-[color:var(--champagne)]"
-                    >
-                      {show ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                  <MagneticButton
-                    type="submit"
-                    className="btn-museum !px-5"
-                    ariaLabel="Unlock"
-                    disabled={locked}
-                  >
-                    <span className="flex items-center gap-2">
-                      <LockKeyhole size={18} aria-hidden="true" />
-                      <span className="hidden sm:inline">Unlock</span>
-                    </span>
-                  </MagneticButton>
-                </div>
-              </>
-            )}
-
-            <p
-              aria-live="polite"
-              className={`comedy-bubble mt-4 ${message ? "opacity-100" : "opacity-0"}`}
-              style={{ minHeight: "3.2rem", transition: "opacity .3s ease" }}
-            >
-              {message || "\u00A0"}
-            </p>
-
-            {/* the seal — all three chances spent */}
-            {locked && (
-              <div className="golden-ribbon mt-4 animate-[fadeUp_.6s_ease_both] text-center" role="alert">
-                <p className="text-sm font-bold text-[#5a1226]">
-                  All {MAX_CHANCES} chances gone — the door sealed itself 🔒
-                </p>
-                <p
-                  className="my-2 font-display text-5xl font-bold tabular-nums text-[#a3125f]"
-                  style={{ textShadow: "0 0 14px rgba(255,235,200,.55)" }}
-                  role="timer"
-                  aria-label={`Door sealed — ${mmss(lockLeft)} remaining`}
-                >
-                  {mmss(lockLeft)}
-                </p>
-                <p className="text-[11px] font-semibold leading-relaxed text-[#4a2140]">
-                  One try releases when the timer ends — then one more every{" "}
-                  {Math.round(REFILL_MS / 60_000)} minutes, {MAX_CHANCES} maximum. Even if you
-                  come back later, the timer keeps its word.
-                </p>
-              </div>
-            )}
-
-            {/* drip feedback while chances regenerate */}
-            {!locked && gate.chances > 0 && gate.chances < MAX_CHANCES && refillLeft != null && (
-              <p className="mt-2 text-center text-xs text-[color:var(--brass)]" role="status">
-                next extra chance in <span className="tabular-nums">{mmss(refillLeft)}</span>
+            <div role="status" className="py-4 text-center">
+              <p className="font-script text-3xl text-[color:var(--champagne)]">
+                The Doors Are Open For You…
               </p>
-            )}
-          </form>
+              <p className="mt-2 text-sm text-[color:var(--text-soft)]">
+                Step inside, {love.recipientName} — our journey of memories and surprises awaits! 💖
+              </p>
+              <MagneticButton
+                onClick={() => {
+                  sound.chime(880);
+                  onUnlock();
+                }}
+                className="btn-museum mt-5 !px-8 !py-3 text-base shadow-[0_0_25px_rgba(255,46,147,0.7)]"
+                ariaLabel="Enter Secret World"
+              >
+                <span className="flex items-center gap-2">
+                  <Sparkles size={18} aria-hidden="true" />
+                  <span>Enter Secret World ✦</span>
+                </span>
+              </MagneticButton>
+            </div>
+          </div>
         </div>
       </div>
 

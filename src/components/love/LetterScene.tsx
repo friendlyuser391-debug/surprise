@@ -7,6 +7,7 @@ import { love } from "@/lib/love-config";
 import { fx } from "@/lib/fx";
 import { sound } from "@/lib/sound";
 import { useSettings } from "@/lib/store";
+import { usePasswordGate } from "@/lib/usePasswordGate";
 import { useIsReducedMotion } from "./Ambient";
 
 type Stage = "sealed" | "open" | "reading" | "done";
@@ -38,6 +39,9 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
   const sealRef = useRef<HTMLDivElement>(null);
   const typeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 3 chances with 2 minutes cooldown
+  const gate = usePasswordGate("fmw.gate.letter");
+
   const fullLength = FULL_LETTER.length;
   const typing = stage === "reading" && typed < fullLength;
   // "done" is derived: the typewriter finished on its own or was skipped
@@ -46,8 +50,10 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
   // Password submission for "mvp"
   const checkLetterPassword = (e: React.FormEvent) => {
     e.preventDefault();
+    if (gate.isLocked) return;
     const clean = pwInput.trim().toLowerCase();
     if (clean === "mvp") {
+      gate.recordSuccess();
       sound.chime(1000);
       sound.popper();
       if (!reduced) {
@@ -58,7 +64,12 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
       setPwError("");
     } else {
       sound.pop();
-      setPwError("Aiyayo! Thappana password! Enoda MVP yaaru Manju? 😉");
+      gate.recordFail();
+      if (gate.chances <= 1) {
+        setPwError("All 3 chances used! Letter sealed for 2 minutes! 🔒");
+      } else {
+        setPwError(`Aiyayo! Thappana password! Enoda MVP yaaru Manju? (${gate.chances - 1} chances left) 😉`);
+      }
       setPwShake((s) => s + 1);
       setPwInput("");
     }
@@ -191,6 +202,47 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
               <span>Password Required to Unseal Letter</span>
             </div>
 
+            {/* Chances left indicator */}
+            <div className="flex items-center justify-between w-full px-1 text-xs">
+              <span className="text-[10px] uppercase tracking-wider text-[color:var(--brass)] font-semibold">
+                Chances Left:
+              </span>
+              <span className="flex items-center gap-1.5">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Heart
+                    key={i}
+                    size={14}
+                    className={
+                      i < gate.chances
+                        ? "text-[color:var(--neon)] drop-shadow-[0_0_6px_rgba(255,46,147,0.8)]"
+                        : "text-white/20"
+                    }
+                    fill={i < gate.chances ? "currentColor" : "none"}
+                  />
+                ))}
+              </span>
+            </div>
+
+            {/* 2 minutes lock banner */}
+            {gate.isLocked && (
+              <div className="w-full rounded-xl border border-red-500/40 bg-red-950/50 p-2.5 text-center text-xs text-red-200 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+                <p className="font-bold flex items-center justify-center gap-1">
+                  <Lock size={13} />
+                  <span>Sealed for 2 minutes!</span>
+                </p>
+                <p className="text-[11px] text-[color:var(--champagne)] mt-1">
+                  Next chance in: <span className="font-mono font-bold text-base text-[color:var(--neon)]">{gate.lockLeftText}</span>
+                </p>
+                <p className="text-[10px] text-white/60 mt-0.5">1 chance will unlock when the timer finishes.</p>
+              </div>
+            )}
+
+            {!gate.isLocked && gate.chances < 3 && gate.refillLeftText && (
+              <p className="text-[10px] text-[color:var(--brass)] text-center">
+                Next extra chance refills in: <span className="font-mono font-semibold">{gate.refillLeftText}</span>
+              </p>
+            )}
+
             <form onSubmit={checkLetterPassword} className={`w-full ${pwShake ? "shake" : ""}`}>
               <div className="flex gap-2">
                 <input
@@ -199,9 +251,14 @@ export default function LetterScene({ onNext }: { onNext: () => void }) {
                   onChange={(e) => setPwInput(e.target.value)}
                   placeholder="Enter Password"
                   maxLength={10}
-                  className="h-11 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center font-bold tracking-[0.25em] text-[color:var(--champagne)] uppercase placeholder:text-white/20 focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50"
+                  disabled={gate.isLocked}
+                  className="h-11 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center font-bold tracking-[0.25em] text-[color:var(--champagne)] uppercase placeholder:text-white/20 focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50 disabled:opacity-50"
                 />
-                <button type="submit" className="btn-museum !px-5 text-xs font-bold">
+                <button
+                  type="submit"
+                  disabled={gate.isLocked}
+                  className="btn-museum !px-5 text-xs font-bold disabled:opacity-40"
+                >
                   <span className="flex items-center gap-1.5">
                     <Key size={14} />
                     <span>Unseal</span>

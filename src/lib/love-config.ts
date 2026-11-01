@@ -27,18 +27,10 @@ export const love = {
   },
 
   /**
-   * First door — the playful TIME CODE puzzle.
-   * Rule requested by user:
-   *   now day count + 1, hour + 1, minutes + 60
-   * e.g. If countdown is 03d 02h 42m:
-   *   days: 3 + 1 = 04
-   *   hours: 2 + 1 = 03
-   *   minutes: 42 + 60 = 102
-   *   combined code: "0403102"
-   * Set `timeCodeEnabled: false` to switch back to a fixed code below.
+   * First door — password for day, hour, minute removed as requested.
    */
-  timeCodeEnabled: true,
-  fixedCode: "0423", // used only when timeCodeEnabled = false
+  timeCodeEnabled: false,
+  fixedCode: "0423", // fallback code if gate is active
 
   // Real history dates (seeded into the history timeline)
   firstSawYou: "2025-09-26",

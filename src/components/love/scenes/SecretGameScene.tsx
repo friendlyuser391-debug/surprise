@@ -42,6 +42,7 @@ import {
 import { isPasswordAutoVisible, love } from "@/lib/love-config";
 import { fx } from "@/lib/fx";
 import { sound } from "@/lib/sound";
+import { usePasswordGate } from "@/lib/usePasswordGate";
 import { useIsReducedMotion } from "../Ambient";
 import { MagneticButton } from "../motion";
 
@@ -107,14 +108,15 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
   // Stages: "astrolabe" -> "password" (0423) -> "rest" -> "celebration" (Pmraanejeu)
   const [stage, setStage] = useState<"astrolabe" | "password" | "rest" | "celebration">("astrolabe");
 
-  // 0423 password state
+  // 0423 password state (3 chances, 2 minutes cooldown)
+  const vaultGate = usePasswordGate("fmw.gate.vault");
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState("");
-  const [pwChances, setPwChances] = useState(3);
   const [pwShake, setPwShake] = useState(0);
   const pwInputRef = useRef<HTMLInputElement>(null);
 
-  // Pmraanejeu celebration password state
+  // Pmraanejeu celebration password state (3 chances, 2 minutes cooldown)
+  const celebGate = usePasswordGate("fmw.gate.celebration");
   const [celebInput, setCelebInput] = useState("");
   const [celebError, setCelebError] = useState("");
   const [celebShake, setCelebShake] = useState(0);
@@ -253,8 +255,10 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
   const submitPassword = useCallback(
     (e?: React.FormEvent) => {
       if (e) e.preventDefault();
+      if (vaultGate.isLocked) return;
       const normalized = pwInput.replace(/\s+/g, "").trim();
       if (normalized === FINAL_SECRET || normalized === "0423") {
+        vaultGate.recordSuccess();
         sound.heartBoom();
         sound.chime(1100);
         if (!reduced) {
@@ -266,21 +270,27 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
         setStage("rest");
       } else {
         sound.pop();
-        setPwError("Aiyayo! Thappana code! Konjam yosichu paaru Manju! 😉");
+        vaultGate.recordFail();
+        if (vaultGate.chances <= 1) {
+          setPwError("All 3 chances used! Vault sealed for 2 minutes! 🔒");
+        } else {
+          setPwError(`Aiyayo! Thappana code! Konjam yosichu paaru Manju! (${vaultGate.chances - 1} chances left) 😉`);
+        }
         setPwShake((k) => k + 1);
-        setPwChances((c) => Math.max(0, c - 1));
         setPwInput("");
       }
     },
-    [pwInput, reduced]
+    [pwInput, vaultGate, reduced]
   );
 
   // Final celebration password check ("Pmraanejeu") -> triggers fireworks
   const submitCelebration = useCallback(
     (e?: React.FormEvent) => {
       if (e) e.preventDefault();
+      if (celebGate.isLocked) return;
       const clean = celebInput.replace(/\s+/g, "").trim().toLowerCase();
       if (clean === "pmraanejeu") {
+        celebGate.recordSuccess();
         sound.heartBoom();
         sound.chime(1200);
         if (!reduced) {
@@ -292,12 +302,17 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
         setTimeout(() => onNext(), 400);
       } else {
         sound.pop();
-        setCelebError("Aiyayo! Thappana celebration password! Try again Manju! 😉");
+        celebGate.recordFail();
+        if (celebGate.chances <= 1) {
+          setCelebError("All 3 chances used! Celebration gate sealed for 2 minutes! 🔒");
+        } else {
+          setCelebError(`Aiyayo! Thappana celebration password! Try again Manju! (${celebGate.chances - 1} chances left) 😉`);
+        }
         setCelebShake((k) => k + 1);
         setCelebInput("");
       }
     },
-    [celebInput, reduced, onNext]
+    [celebInput, celebGate, reduced, onNext]
   );
 
   // Keyboard controls: Q/W (Outer), A/S (Middle), Z/X (Inner), R (Reset), Enter for forms
@@ -362,10 +377,10 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
         {stage === "astrolabe"
           ? "The Celestial Astrolabe"
           : stage === "password"
-          ? "The Secret Vault Gateway"
-          : stage === "rest"
-          ? "Chamber of Peaceful Rest"
-          : "The Grand Celebration Gate"}
+            ? "The Secret Vault Gateway"
+            : stage === "rest"
+              ? "Chamber of Peaceful Rest"
+              : "The Grand Celebration Gate"}
       </h1>
 
       {stage === "astrolabe" && (
@@ -428,29 +443,26 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
           {/* Resonance Gauge & Alignment Status */}
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2 sm:gap-4 text-xs font-medium">
             <span
-              className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 border transition-colors ${
-                outerAligned
-                  ? "border-[#fef08a]/80 bg-[#fef08a]/15 text-[#fef08a] shadow-[0_0_10px_rgba(254,240,138,0.4)]"
-                  : "border-white/10 text-white/50"
-              }`}
+              className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 border transition-colors ${outerAligned
+                ? "border-[#fef08a]/80 bg-[#fef08a]/15 text-[#fef08a] shadow-[0_0_10px_rgba(254,240,138,0.4)]"
+                : "border-white/10 text-white/50"
+                }`}
             >
               Outer: {outerAligned ? "✨ Aligned" : OUTER_SECTORS[outerIdx].glyph}
             </span>
             <span
-              className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 border transition-colors ${
-                middleAligned
-                  ? "border-[#f472b6]/80 bg-[#f472b6]/15 text-[#f472b6] shadow-[0_0_10px_rgba(244,114,182,0.4)]"
-                  : "border-white/10 text-white/50"
-              }`}
+              className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 border transition-colors ${middleAligned
+                ? "border-[#f472b6]/80 bg-[#f472b6]/15 text-[#f472b6] shadow-[0_0_10px_rgba(244,114,182,0.4)]"
+                : "border-white/10 text-white/50"
+                }`}
             >
               Middle: {middleAligned ? "♾️ Aligned" : MIDDLE_SECTORS[middleIdx].glyph}
             </span>
             <span
-              className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 border transition-colors ${
-                innerAligned
-                  ? "border-[#ff2e93]/80 bg-[#ff2e93]/15 text-[#ff2e93] shadow-[0_0_10px_rgba(255,46,147,0.4)]"
-                  : "border-white/10 text-white/50"
-              }`}
+              className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 border transition-colors ${innerAligned
+                ? "border-[#ff2e93]/80 bg-[#ff2e93]/15 text-[#ff2e93] shadow-[0_0_10px_rgba(255,46,147,0.4)]"
+                : "border-white/10 text-white/50"
+                }`}
             >
               Inner: {innerAligned ? "💖 Aligned" : INNER_SECTORS[innerIdx].glyph}
             </span>
@@ -463,11 +475,10 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
               {[0, 1, 2].map((i) => (
                 <span
                   key={i}
-                  className={`h-2 w-6 rounded-full transition-all duration-500 ${
-                    i < totalAligned
-                      ? "bg-gradient-to-r from-[color:var(--rose)] to-[color:var(--champagne)] shadow-[0_0_8px_rgba(255,46,147,0.8)]"
-                      : "bg-white/10"
-                  }`}
+                  className={`h-2 w-6 rounded-full transition-all duration-500 ${i < totalAligned
+                    ? "bg-gradient-to-r from-[color:var(--rose)] to-[color:var(--champagne)] shadow-[0_0_8px_rgba(255,46,147,0.8)]"
+                    : "bg-white/10"
+                    }`}
                 />
               ))}
             </div>
@@ -496,9 +507,8 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
 
             {/* Concentric Rotating Astrolabe Canvas/SVG */}
             <div
-              className={`relative h-[290px] w-[290px] sm:h-[350px] sm:w-[350px] md:h-[390px] md:w-[390px] rounded-full border border-[color:var(--brass)]/40 bg-[radial-gradient(circle_at_50%_50%,rgba(42,15,58,0.7)_0%,rgba(12,4,20,0.95)_100%)] p-2 shadow-[0_0_35px_rgba(201,165,106,0.18)] transition-all ${
-                gameWon ? "ring-4 ring-[color:var(--champagne)] shadow-[0_0_50px_rgba(244,223,180,0.6)]" : ""
-              }`}
+              className={`relative h-[290px] w-[290px] sm:h-[350px] sm:w-[350px] md:h-[390px] md:w-[390px] rounded-full border border-[color:var(--brass)]/40 bg-[radial-gradient(circle_at_50%_50%,rgba(42,15,58,0.7)_0%,rgba(12,4,20,0.95)_100%)] p-2 shadow-[0_0_35px_rgba(201,165,106,0.18)] transition-all ${gameWon ? "ring-4 ring-[color:var(--champagne)] shadow-[0_0_50px_rgba(244,223,180,0.6)]" : ""
+                }`}
             >
               {/* Outer Ring Container (Constellations) */}
               <div
@@ -513,9 +523,8 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                   return (
                     <div
                       key={sec.id}
-                      className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-all ${
-                        isKey ? "scale-110 drop-shadow-[0_0_8px_#fef08a]" : "opacity-80"
-                      }`}
+                      className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-all ${isKey ? "scale-110 drop-shadow-[0_0_8px_#fef08a]" : "opacity-80"
+                        }`}
                       style={{ left: `${rx}%`, top: `${ry}%` }}
                     >
                       <span className="text-lg sm:text-xl">{sec.glyph}</span>
@@ -543,9 +552,8 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                   return (
                     <div
                       key={sec.id}
-                      className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-all ${
-                        isKey ? "scale-110 drop-shadow-[0_0_8px_#f472b6]" : "opacity-80"
-                      }`}
+                      className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-all ${isKey ? "scale-110 drop-shadow-[0_0_8px_#f472b6]" : "opacity-80"
+                        }`}
                       style={{ left: `${rx}%`, top: `${ry}%` }}
                     >
                       <span className="text-base sm:text-lg">{sec.glyph}</span>
@@ -573,9 +581,8 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                   return (
                     <div
                       key={sec.id}
-                      className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-all ${
-                        isKey ? "scale-125 drop-shadow-[0_0_10px_#ff2e93]" : "opacity-80"
-                      }`}
+                      className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-all ${isKey ? "scale-125 drop-shadow-[0_0_10px_#ff2e93]" : "opacity-80"
+                        }`}
                       style={{ left: `${rx}%`, top: `${ry}%` }}
                     >
                       <span className="text-sm sm:text-base">{sec.glyph}</span>
@@ -734,18 +741,42 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
 
           {/* Chances left for the password */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-[0.25em] text-[color:var(--brass)]">Key Chances:</span>
-            <span className="flex items-center gap-1">
+            <span className="text-[10px] uppercase tracking-[0.25em] text-[color:var(--brass)] font-semibold">Vault Chances:</span>
+            <span className="flex items-center gap-1.5">
               {Array.from({ length: 3 }).map((_, i) => (
                 <Lock
                   key={i}
                   size={14}
-                  className={i < pwChances ? "text-[color:var(--neon)]" : "text-white/20"}
+                  className={
+                    i < vaultGate.chances
+                      ? "text-[color:var(--neon)] drop-shadow-[0_0_6px_rgba(255,46,147,0.8)]"
+                      : "text-white/20"
+                  }
                   aria-hidden="true"
                 />
               ))}
             </span>
           </div>
+
+          {/* 2 minutes lock banner */}
+          {vaultGate.isLocked && (
+            <div className="w-full rounded-xl border border-red-500/40 bg-red-950/50 p-3 text-center text-xs text-red-200 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+              <p className="font-bold flex items-center justify-center gap-1.5">
+                <Lock size={14} />
+                <span>Vault sealed for 2 minutes!</span>
+              </p>
+              <p className="text-xs text-[color:var(--champagne)] mt-1">
+                Next chance unlocks in: <span className="font-mono font-bold text-base text-[color:var(--neon)]">{vaultGate.lockLeftText}</span>
+              </p>
+              <p className="text-[10px] text-white/60 mt-0.5">1 chance will be granted when the timer finishes.</p>
+            </div>
+          )}
+
+          {!vaultGate.isLocked && vaultGate.chances < 3 && vaultGate.refillLeftText && (
+            <p className="text-[10px] text-[color:var(--brass)] text-center -mt-2">
+              Next extra chance in: <span className="font-mono font-semibold">{vaultGate.refillLeftText}</span>
+            </p>
+          )}
 
           {/* Romantic Clue Drawer for Mobile */}
           <details className="w-full max-w-md rounded-xl border border-[color:var(--rose)]/35 bg-[rgba(18,6,26,0.7)] p-3 text-center backdrop-blur-md transition-all group">
@@ -784,10 +815,16 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                 onChange={(e) => setPwInput(e.target.value)}
                 placeholder="••••"
                 maxLength={8}
+                disabled={vaultGate.isLocked}
                 autoComplete="off"
-                className="h-12 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center text-lg sm:text-xl font-bold tracking-[0.35em] text-[color:var(--champagne)] placeholder:text-white/20 uppercase focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50"
+                className="h-12 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center text-lg sm:text-xl font-bold tracking-[0.35em] text-[color:var(--champagne)] placeholder:text-white/20 uppercase focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50 disabled:opacity-50"
               />
-              <MagneticButton type="submit" className="btn-museum !px-5" ariaLabel="Unlock Vault">
+              <MagneticButton
+                type="submit"
+                className="btn-museum !px-5 disabled:opacity-40"
+                ariaLabel="Unlock Vault"
+                disabled={vaultGate.isLocked}
+              >
                 <span className="flex items-center gap-1.5">
                   <Unlock size={16} aria-hidden="true" />
                   <span>Unlock</span>
@@ -956,6 +993,47 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
             Enter the sacred final password uniting our names to ignite the midnight sky with our fireworks celebration!
           </p>
 
+          {/* Chances left for the celebration password */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-[0.25em] text-[color:var(--champagne)] font-semibold">
+              Celebration Chances:
+            </span>
+            <span className="flex items-center gap-1.5">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Heart
+                  key={i}
+                  size={14}
+                  className={
+                    i < celebGate.chances
+                      ? "text-[color:var(--neon)] drop-shadow-[0_0_6px_rgba(255,46,147,0.8)]"
+                      : "text-white/20"
+                  }
+                  fill={i < celebGate.chances ? "currentColor" : "none"}
+                />
+              ))}
+            </span>
+          </div>
+
+          {/* 2 minutes lock banner */}
+          {celebGate.isLocked && (
+            <div className="w-full rounded-xl border border-red-500/40 bg-red-950/50 p-3 text-center text-xs text-red-200 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+              <p className="font-bold flex items-center justify-center gap-1.5">
+                <Lock size={14} />
+                <span>Celebration Gate sealed for 2 minutes!</span>
+              </p>
+              <p className="text-xs text-[color:var(--champagne)] mt-1">
+                Next chance unlocks in: <span className="font-mono font-bold text-base text-[color:var(--neon)]">{celebGate.lockLeftText}</span>
+              </p>
+              <p className="text-[10px] text-white/60 mt-0.5">1 chance will be granted when the timer finishes.</p>
+            </div>
+          )}
+
+          {!celebGate.isLocked && celebGate.chances < 3 && celebGate.refillLeftText && (
+            <p className="text-[10px] text-[color:var(--champagne)] text-center -mt-2">
+              Next extra chance in: <span className="font-mono font-semibold">{celebGate.refillLeftText}</span>
+            </p>
+          )}
+
           {/* Romantic Clue Drawer for Celebration Password */}
           <details className="w-full max-w-md rounded-xl border border-[color:var(--champagne)]/35 bg-[rgba(18,6,26,0.7)] p-3 text-center backdrop-blur-md transition-all group">
             <summary className="flex cursor-pointer items-center justify-between text-xs font-semibold text-[color:var(--champagne)]">
@@ -972,7 +1050,7 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                 &ldquo;The sacred password uniting Prajeeth and Manju into celebration…&rdquo;
               </p>
               <p className="text-[11px] text-[color:var(--text-soft)]">
-                A secret code created by intertwining both of our names together 🗝️💖
+                A secret code konjam fast ha potana ulla enna irukunu pakalam🗝️💖
               </p>
             </div>
           </details>
@@ -992,10 +1070,16 @@ export default function SecretGameScene({ onNext }: { onNext: () => void }) {
                 onChange={(e) => setCelebInput(e.target.value)}
                 placeholder="••••••••••"
                 maxLength={20}
+                disabled={celebGate.isLocked}
                 autoComplete="off"
-                className="h-12 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center text-lg sm:text-xl font-bold tracking-[0.2em] text-[color:var(--champagne)] placeholder:text-white/20 focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50"
+                className="h-12 flex-1 rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.85)] px-4 text-center text-lg sm:text-xl font-bold tracking-[0.2em] text-[color:var(--champagne)] placeholder:text-white/20 focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50 disabled:opacity-50"
               />
-              <MagneticButton type="submit" className="btn-museum !px-5" ariaLabel="Ignite Fireworks Celebration">
+              <MagneticButton
+                type="submit"
+                className="btn-museum !px-5 disabled:opacity-40"
+                ariaLabel="Ignite Fireworks Celebration"
+                disabled={celebGate.isLocked}
+              >
                 <span className="flex items-center gap-1.5">
                   <Unlock size={16} aria-hidden="true" />
                   <span>Celebrate!</span>
