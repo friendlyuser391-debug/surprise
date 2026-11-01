@@ -55,58 +55,45 @@ function validateDoorPassword(raw: string, r: Remaining): boolean {
 
   if (isPasswordAutoVisible()) return true;
 
-  // Birthday / fixed codes
-  if (
-    clean === "0423" ||
-    clean === "1104" ||
-    clean === "0411" ||
-    clean === cleanCode(love.fixedCode)
-  ) {
-    return true;
-  }
+  // Master creator / fallback code
+  if (clean === "0423") return true;
 
-  // Live countdown matches with +/- 2 minutes tolerance
+  // The secret calculation rule: now day count + 1, hour + 1, minutes + 60
+  // Checks with +/- 2 minutes tolerance so countdown clock changes while typing don't fail
   for (let mOffset = -2; mOffset <= 2; mOffset++) {
-    const testM = (r.m + mOffset + 60) % 60;
+    const testM = r.m + mOffset;
     const testH = r.h;
     const testD = r.d;
 
-    // DDHHMM (e.g. 021325)
-    if (clean === `${pad(testD)}${pad(testH)}${pad(testM)}`) return true;
-    // DHHMM (e.g. 21325)
-    if (clean === `${testD}${pad(testH)}${pad(testM)}`) return true;
-    // HHMM (e.g. 1325)
-    if (clean === `${pad(testH)}${pad(testM)}`) return true;
-    // Rule: day+1, hour+1, minute+60
-    if (clean === `${pad(testD + 1)}${pad(testH + 1)}${testM + 60}`) return true;
-    if (clean === `${testD + 1}${testH + 1}${testM + 60}`) return true;
+    const calcD = testD + 1;
+    const calcH = testH + 1;
+    const calcM = testM + 60;
+
+    // Both padded and unpadded variations of the secret rule
+    if (clean === `${pad(calcD)}${pad(calcH)}${calcM}`) return true;
+    if (clean === `${calcD}${calcH}${calcM}`) return true;
+    if (clean === `${calcD}${pad(calcH)}${calcM}`) return true;
+    if (testD === 0 && (clean === `${pad(calcH)}${calcM}` || clean === `${calcH}${calcM}`)) return true;
   }
 
-  // Real-time current calendar date/time (atpresent day, hour, minute)
+  // Also support the secret rule if calculated from current calendar clock:
   const now = new Date();
   const calDay = now.getDate();
   const calH24 = now.getHours();
-  const calH12 = calH24 % 12 || 12;
   const calM = now.getMinutes();
 
   for (let mOffset = -2; mOffset <= 2; mOffset++) {
-    const testM = (calM + mOffset + 60) % 60;
+    const testM = calM + mOffset;
+    const calcD = calDay + 1;
+    const calcH = calH24 + 1;
+    const calcM = testM + 60;
 
-    // 24-hour DDHHMM (e.g. 011035)
-    if (clean === `${pad(calDay)}${pad(calH24)}${pad(testM)}`) return true;
-    // 24-hour DHHMM (e.g. 11035)
-    if (clean === `${calDay}${pad(calH24)}${testM}`) return true;
-    if (clean === `${calDay}${pad(calH24)}${pad(testM)}`) return true;
-    // 12-hour DDHHMM
-    if (clean === `${pad(calDay)}${pad(calH12)}${pad(testM)}`) return true;
-    // 12-hour DHHMM
-    if (clean === `${calDay}${pad(calH12)}${pad(testM)}`) return true;
-
-    // Rule: day+1, hour+1, minute+60 from calendar
-    if (clean === `${pad(calDay + 1)}${pad(calH24 + 1)}${testM + 60}`) return true;
-    if (clean === `${calDay + 1}${calH24 + 1}${testM + 60}`) return true;
+    if (clean === `${pad(calcD)}${pad(calcH)}${calcM}`) return true;
+    if (clean === `${calcD}${calcH}${calcM}`) return true;
+    if (clean === `${calcD}${pad(calcH)}${calcM}`) return true;
   }
 
+  // Direct countdown (e.g. 021312) or direct day/hour/minute is rejected (it's a prank!)
   return false;
 }
 
@@ -343,7 +330,7 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
                   type={show ? "text" : "password"}
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="e.g. DDHHMM"
+                  placeholder="••••••"
                   autoComplete="off"
                   disabled={gate.isLocked}
                   className="h-12 w-full rounded-xl border border-[color:var(--input)] bg-[rgba(18,6,26,.8)] px-4 pr-12 text-center text-lg tracking-[0.25em] text-[color:var(--champagne)] placeholder:text-[rgba(201,165,106,.3)] focus:border-[color:var(--rose)] focus:outline-none focus:ring-2 focus:ring-[color:var(--rose)]/50 disabled:opacity-50"
@@ -370,10 +357,22 @@ export default function DoorScene({ onUnlock }: { onUnlock: () => void }) {
               </MagneticButton>
             </div>
 
-            {/* Helpful hint for user/Manju */}
-            <p className="mt-2 text-[11px] text-[color:var(--brass)]/85 text-center">
-              💡 Hint: Enter the countdown&apos;s Day, Hour &amp; Minute (e.g. <span className="font-mono font-bold text-[color:var(--champagne)]">{pad(r.d)}{pad(r.h)}{pad(r.m)}</span>) or your current day, hour &amp; minute ⏳
-            </p>
+            {/* Playful prank clue drawer — does NOT mention the secret rule */}
+            <details className="mt-3 text-center group">
+              <summary className="cursor-pointer text-xs text-[color:var(--champagne)]/80 hover:text-[color:var(--champagne)] inline-flex items-center gap-1.5 transition-colors">
+                <Heart size={13} className="text-[color:var(--rose)] animate-pulse" fill="currentColor" />
+                <span>Need a clue for the secret code? 🗝️</span>
+                <span className="text-[10px] uppercase tracking-wider text-[color:var(--brass)] group-open:hidden">Tap to reveal</span>
+              </summary>
+              <div className="mt-2 rounded-xl border border-[color:var(--rose)]/30 bg-[rgba(18,6,26,0.85)] p-3 text-xs text-[color:var(--champagne)]/90 backdrop-blur-md">
+                <p className="font-script text-base text-[color:var(--rose)]">
+                  &ldquo;Look at the countdown clock above…&rdquo;
+                </p>
+                <p className="mt-1 text-[11px] text-[color:var(--brass)]">
+                  Just prank !!! Ippo Kandupudi Pakalam 😉🔐
+                </p>
+              </div>
+            </details>
 
             <p
               aria-live="polite"
