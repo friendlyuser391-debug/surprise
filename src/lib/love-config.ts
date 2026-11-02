@@ -206,6 +206,16 @@ export const love = {
     closing: "Thank you for being my person — my love, my heartbeat, and my forever. Here is to our infinite love story together.",
     signature: "— Forever yours, with all my love and whole heart ❤️",
   },
+
+  /**
+   * Final touch birthday gift treasure reveal:
+   */
+  birthdayGift: {
+    heading: "The Birthday Gift 05077",
+    code: "05077",
+    instructionLine1: "Type The Number In Contact",
+    instructionLine2: "Gift Is There",
+  },
 } as const;
 
 /** Target Date object for the countdown. */

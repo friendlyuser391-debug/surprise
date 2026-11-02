@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Heart, RotateCcw, Sparkles } from "lucide-react";
+import { Check, Copy, Gift, Heart, RotateCcw, Sparkles } from "lucide-react";
 import { love } from "@/lib/love-config";
 import { fx } from "@/lib/fx";
 import { sound } from "@/lib/sound";
@@ -31,9 +31,19 @@ export default function FinalTouchScene({ onReplay }: FinalTouchSceneProps) {
   const reduced = useIsReducedMotion();
   const sectionRef = useRef<HTMLElement>(null);
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState(false);
   const promiseRefs = useRef<(HTMLElement | null)[]>([]);
 
   const quotes = useMemo(() => [...love.finalQuotes, ...love.finalQuotes], []);
+
+  const handleCopyGiftCode = () => {
+    sound.chime(990);
+    try {
+      navigator.clipboard.writeText(love.birthdayGift.code);
+    } catch {}
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
 
   // a gentle confetti + heart shower on arrival
   useEffect(() => {
@@ -151,6 +161,57 @@ export default function FinalTouchScene({ onReplay }: FinalTouchSceneProps) {
           <Sparkles size={15} aria-hidden="true" className="text-[color:var(--rose)]" />
           {love.projectName} — {love.tagline}
         </p>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════
+          THE SPECIAL BIRTHDAY GIFT REVEAL
+          ══════════════════════════════════════════════════════════ */}
+      <div className="mt-14 w-full max-w-lg animate-[fadeUp_1.1s_ease_both]">
+        <div className="relative overflow-hidden rounded-3xl border-2 border-[color:var(--champagne)]/70 bg-[radial-gradient(ellipse_at_center,rgba(48,15,36,0.95)_0%,rgba(10,4,14,0.98)_100%)] p-7 sm:p-9 text-center shadow-[0_0_45px_rgba(244,223,180,0.4)] backdrop-blur-xl">
+          {/* Ambient golden aura shimmer */}
+          <div className="pointer-events-none absolute -inset-1 rounded-3xl bg-gradient-to-r from-[color:var(--rose)]/40 via-[color:var(--champagne)]/50 to-[color:var(--neon)]/40 opacity-75 blur-2xl" />
+
+          <div className="relative z-10 flex flex-col items-center">
+            {/* Gift Icon Badge */}
+            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full border-2 border-[color:var(--champagne)] bg-[rgba(244,223,180,0.2)] shadow-[0_0_30px_rgba(255,46,147,0.7)] animate-bounce">
+              <Gift size={38} className="text-[color:var(--champagne)] drop-shadow-[0_0_12px_rgba(244,223,180,0.9)]" />
+            </div>
+
+            {/* Display: The Birthday Gift 05077 */}
+            <h3 className="font-display text-2xl sm:text-4xl font-bold tracking-wide text-[color:var(--champagne)] drop-shadow-[0_0_18px_rgba(244,223,180,0.8)]">
+              The Birthday Gift <span className="font-mono text-[color:var(--neon)] tracking-wider drop-shadow-[0_0_12px_rgba(255,46,147,1)]">05077</span>
+            </h3>
+
+            {/* Instruction Lines */}
+            <div className="mt-4 space-y-1.5">
+              <p className="text-sm sm:text-base font-bold tracking-widest text-[color:var(--champagne)] uppercase drop-shadow-[0_0_6px_rgba(244,223,180,0.5)]">
+                Type The Number In Contact
+              </p>
+              <p className="font-script text-2xl sm:text-3xl text-[color:var(--rose)] drop-shadow-[0_0_10px_rgba(255,46,147,0.8)]">
+                Gift Is There
+              </p>
+            </div>
+
+            {/* Interactive Copy Button */}
+            <button
+              type="button"
+              onClick={handleCopyGiftCode}
+              className="mt-6 inline-flex items-center gap-2 rounded-xl border border-[color:var(--champagne)]/50 bg-[rgba(244,223,180,0.15)] px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-[color:var(--champagne)] transition-all hover:bg-[rgba(244,223,180,0.3)] hover:shadow-[0_0_20px_rgba(244,223,180,0.6)] active:scale-95"
+            >
+              {copied ? (
+                <>
+                  <Check size={16} className="text-emerald-400" />
+                  <span className="text-emerald-300">Code Copied (05077)!</span>
+                </>
+              ) : (
+                <>
+                  <Copy size={16} />
+                  <span>Tap to Copy 05077</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* replay the celebration */}
